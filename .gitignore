@@ -2,4 +2,5 @@ test-tools/node_modules/
 test-tools/ms-playwright/
 verification/
 .superpowers/
+.worktrees/
 *.log
