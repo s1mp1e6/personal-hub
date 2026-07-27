@@ -544,6 +544,68 @@ test('merge scope without attachments preserves receiver refs and never adds sen
   assert.equal(JSON.stringify(applied).includes('sender-file'), false);
 });
 
+test('merge scope without attachments preserves every receiver ref in attachment arrays', async () => {
+  const receiverFiles = [
+    { fileId: 'receiver-file-1', name: 'one.pdf', type: 'application/pdf', size: 10, kind: 'doc' },
+    { fileId: 'receiver-file-2', name: 'two.pdf', type: 'application/pdf', size: 20, kind: 'doc' }
+  ];
+  const senderFile = {
+    fileId: 'sender-file',
+    name: 'sender.pdf',
+    type: 'application/pdf',
+    size: 30,
+    kind: 'doc'
+  };
+  const sender = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-1',
+          txt: 'sender text',
+          attachments: [],
+          resources: [senderFile, { id: 'sender-note', label: 'sender metadata' }],
+          tags: ['sender'],
+          _sync: { vector: { sender: 2 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiver = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-1',
+          txt: 'receiver text',
+          attachments: clone(receiverFiles),
+          resources: [clone(receiverFiles[0]), clone(receiverFiles[1]), { id: 'old-note', label: 'old metadata' }],
+          tags: ['receiver'],
+          _sync: { vector: { sender: 1 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const applied = await SyncCore.applyMergePlan(plan, receiver);
+  const updated = applied.modules.todos.items[0];
+
+  assert.deepEqual(updated.attachments, receiverFiles);
+  assert.deepEqual(visible(updated.resources), [
+    { id: 'sender-note', label: 'sender metadata' },
+    receiverFiles[0],
+    receiverFiles[1]
+  ]);
+  assert.deepEqual(updated.tags, ['sender']);
+  assert.equal(updated.txt, 'sender text');
+  assert.equal(JSON.stringify(applied).includes('sender-file'), false);
+});
+
 test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
   const manifest = await SyncCore.buildManifest(
     {
@@ -1360,6 +1422,291 @@ test('validateEnvelope rejects non-integer record, tombstone, attachment, and se
       );
     }
   }
+});
+
+test('validateEnvelope enforces exact metadata-only manifest shapes and scope flags', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'private text',
+            attachment: {
+              fileId: 'file-1',
+              name: 'scan.pdf',
+              type: 'application/pdf',
+              size: 64,
+              kind: 'doc'
+            }
+          }]
+        }
+      },
+      appearance: { theme: 'dark' },
+      _sync: {
+        tombstones: [makeTombstone({
+          id: 'todo-gone-1',
+          pathSegments: ['modules', 'todos', 'items'],
+          vector: { deviceA: 2 }
+        })]
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: true }
+  );
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const envelope = { protocol: 2, type: 'manifest', manifest };
+
+  assert.equal(SyncCore.validateEnvelope(envelope, limits), true);
+
+  for (const [name, nextEnvelope, expectedPattern] of [
+    ['envelope field', { ...envelope, userText: 'leak' }, /manifest.*unknown field.*userText/i],
+    ['manifest field', { ...envelope, manifest: { ...manifest, userText: 'leak' } }, /manifest.*unknown field.*userText/i],
+    [
+      'scope field',
+      { ...envelope, manifest: { ...manifest, scope: { ...manifest.scope, userText: 'leak' } } },
+      /manifest\.scope.*unknown field.*userText/i
+    ],
+    [
+      'module summary field',
+      { ...envelope, manifest: { ...manifest, modules: [{ ...manifest.modules[0], title: 'leak' }] } },
+      /manifest\.modules\[0\].*unknown field.*title/i
+    ],
+    [
+      'record field',
+      { ...envelope, manifest: { ...manifest, records: [{ ...manifest.records[0], txt: 'leak' }] } },
+      /manifest\.records\[0\].*unknown field.*txt/i
+    ],
+    [
+      'tombstone field',
+      { ...envelope, manifest: { ...manifest, tombstones: [{ ...manifest.tombstones[0], note: 'leak' }] } },
+      /manifest\.tombstones\[0\].*unknown field.*note/i
+    ],
+    [
+      'attachment field',
+      { ...envelope, manifest: { ...manifest, attachments: [{ ...manifest.attachments[0], bytes: 'leak' }] } },
+      /manifest\.attachments\[0\].*unknown field.*bytes/i
+    ],
+    [
+      'settings field',
+      { ...envelope, manifest: { ...manifest, settings: { ...manifest.settings, theme: 'leak' } } },
+      /manifest\.settings.*unknown field.*theme/i
+    ],
+    [
+      'missing attachment flag',
+      {
+        ...envelope,
+        manifest: {
+          ...manifest,
+          scope: { modules: ['todos'], includeSettings: true }
+        }
+      },
+      /manifest\.scope\.includeAttachments.*required/i
+    ],
+    [
+      'invalid settings flag',
+      { ...envelope, manifest: { ...manifest, scope: { ...manifest.scope, includeSettings: 1 } } },
+      /manifest\.scope\.includeSettings.*boolean/i
+    ],
+    [
+      'invalid record vector',
+      { ...envelope, manifest: { ...manifest, records: [{ ...manifest.records[0], vector: { deviceA: 1.5 } }] } },
+      /manifest\.records\[0\]\.vector\.deviceA.*integer/i
+    ],
+    [
+      'invalid tombstone vector',
+      { ...envelope, manifest: { ...manifest, tombstones: [{ ...manifest.tombstones[0], vector: 'bad' }] } },
+      /manifest\.tombstones\[0\]\.vector.*plain object/i
+    ],
+    [
+      'invalid record hash',
+      { ...envelope, manifest: { ...manifest, records: [{ ...manifest.records[0], contentHash: 'ABC' }] } },
+      /manifest\.records\[0\]\.contentHash.*sha-256/i
+    ],
+    [
+      'invalid settings hash',
+      { ...envelope, manifest: { ...manifest, settings: { ...manifest.settings, contentHash: 'abc' } } },
+      /manifest\.settings\.contentHash.*sha-256/i
+    ],
+    [
+      'invalid record deleted',
+      { ...envelope, manifest: { ...manifest, records: [{ ...manifest.records[0], deleted: 'false' }] } },
+      /manifest\.records\[0\]\.deleted.*boolean/i
+    ],
+    [
+      'invalid tombstone deleted',
+      { ...envelope, manifest: { ...manifest, tombstones: [{ ...manifest.tombstones[0], deleted: false }] } },
+      /manifest\.tombstones\[0\]\.deleted.*true/i
+    ],
+    [
+      'invalid attachment file id',
+      { ...envelope, manifest: { ...manifest, attachments: [{ ...manifest.attachments[0], fileId: 7 }] } },
+      /manifest\.attachments\[0\]\.fileId.*string/i
+    ],
+    [
+      'attachments disabled with content',
+      { ...envelope, manifest: { ...manifest, scope: { ...manifest.scope, includeAttachments: false } } },
+      /includeAttachments.*attachments.*empty/i
+    ],
+    [
+      'settings disabled with content',
+      { ...envelope, manifest: { ...manifest, scope: { ...manifest.scope, includeSettings: false } } },
+      /includeSettings.*settings.*absent/i
+    ],
+    [
+      'settings enabled without metadata',
+      (() => {
+        const nextManifest = { ...manifest };
+        delete nextManifest.settings;
+        return { ...envelope, manifest: nextManifest };
+      })(),
+      /manifest\.settings.*required/i
+    ]
+  ]) {
+    assert.throws(() => SyncCore.validateEnvelope(nextEnvelope, limits), expectedPattern, name);
+  }
+
+  const withoutAttachments = await SyncCore.buildManifest(
+    { modules: { todos: { items: [{ id: 'todo-2', txt: 'private' }] } } },
+    { modules: ['todos'], includeAttachments: false, includeSettings: false }
+  );
+  const inconsistentCounts = {
+    ...withoutAttachments,
+    modules: [{ ...withoutAttachments.modules[0], attachmentCount: 1 }]
+  };
+  assert.throws(
+    () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: inconsistentCounts }, limits),
+    /includeAttachments.*attachmentCount.*zero/i
+  );
+});
+
+test('validateEnvelope validates data chunks exactly and registers indexes transactionally', () => {
+  const baseLimits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxEnvelopeBytes: 512,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 8,
+    maxChunkCount: 4
+  };
+  const validChunk = {
+    protocol: 2,
+    type: 'data-chunk',
+    chunk: { index: 1, total: 3, payload: 'abc' }
+  };
+
+  for (const [name, envelope, expectedPattern] of [
+    ['unknown envelope field', { ...validChunk, extra: true }, /data-chunk.*unknown field.*extra/i],
+    [
+      'unknown chunk field',
+      { ...validChunk, chunk: { ...validChunk.chunk, extra: true } },
+      /chunk.*unknown field.*extra/i
+    ],
+    ['fractional index', { ...validChunk, chunk: { ...validChunk.chunk, index: 1.5 } }, /chunk index.*integer/i],
+    ['nonnumeric index', { ...validChunk, chunk: { ...validChunk.chunk, index: '1' } }, /chunk index.*integer/i],
+    ['negative index', { ...validChunk, chunk: { ...validChunk.chunk, index: -1 } }, /chunk index.*integer/i],
+    ['fractional total', { ...validChunk, chunk: { ...validChunk.chunk, total: 2.5 } }, /chunk total.*integer/i],
+    ['zero total', { ...validChunk, chunk: { ...validChunk.chunk, total: 0 } }, /chunk total.*positive integer/i],
+    ['chunk count limit', { ...validChunk, chunk: { ...validChunk.chunk, total: 5 } }, /chunk total.*limit/i],
+    ['payload limit', { ...validChunk, chunk: { ...validChunk.chunk, payload: '123456789' } }, /payload.*limit/i]
+  ]) {
+    const seenChunkIndexes = new Set([0]);
+    assert.throws(
+      () => SyncCore.validateEnvelope(envelope, { ...baseLimits, seenChunkIndexes }),
+      expectedPattern,
+      name
+    );
+    assert.deepEqual(Array.from(seenChunkIndexes), [0], name + ' must not register an index');
+  }
+
+  const seenChunkIndexes = new Set([0]);
+  assert.equal(SyncCore.validateEnvelope(validChunk, { ...baseLimits, seenChunkIndexes }), true);
+  assert.deepEqual(Array.from(seenChunkIndexes), [0, 1]);
+  assert.throws(
+    () => SyncCore.validateEnvelope(validChunk, { ...baseLimits, seenChunkIndexes }),
+    /duplicate chunk index/i
+  );
+  assert.deepEqual(Array.from(seenChunkIndexes), [0, 1]);
+});
+
+test('applyMergePlan handles delete conflicts safely in both live-tombstone directions', async () => {
+  const pathSegments = ['modules', 'todos', 'items'];
+  const scope = { modules: ['todos'], includeAttachments: false, includeSettings: false };
+  const senderLive = {
+    modules: {
+      todos: {
+        items: [{ id: 'todo-1', txt: 'sender concurrent edit', _sync: { vector: { sender: 1 } } }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiverDeleted = {
+    modules: { todos: { items: [] } },
+    _sync: {
+      tombstones: [makeTombstone({ id: 'todo-1', pathSegments, vector: { receiver: 1 } })]
+    }
+  };
+  const receiverDeletedBefore = clone(receiverDeleted);
+  const livePlan = await SyncCore.buildMergePlan(senderLive, receiverDeleted, scope);
+  const liveOperation = livePlan.operations.find(item => item.identity.id === 'todo-1');
+  const livePlanBefore = clone(livePlan);
+
+  assert.equal(liveOperation.category, 'deleteConflict');
+  assert.equal(liveOperation.selected, false);
+  const defaultApplied = await SyncCore.applyMergePlan(livePlan, receiverDeleted);
+  assert.deepEqual(defaultApplied.modules.todos.items, []);
+  assert.deepEqual(defaultApplied._sync.tombstones, receiverDeleted._sync.tombstones);
+
+  const selectedApplied = await SyncCore.applyMergePlan(livePlan, receiverDeleted, {
+    selectedOperationIds: new Set([liveOperation.id]),
+    idFactory() {
+      return 'todo-1-conflict';
+    }
+  });
+  assert.equal(selectedApplied.modules.todos.items.length, 1);
+  assert.equal(selectedApplied.modules.todos.items[0].id, 'todo-1-conflict');
+  assert.equal(selectedApplied.modules.todos.items[0].txt, 'sender concurrent edit');
+  assert.equal(selectedApplied.modules.todos.items[0]._sync.conflictOf, 'todo-1');
+  assert.equal(selectedApplied.modules.todos.items[0]._sync.deleted, false);
+  assert.equal(selectedApplied._sync.tombstones.length, 1);
+  assert.equal(selectedApplied._sync.tombstones[0].id, 'todo-1');
+  assert.deepEqual(receiverDeleted, receiverDeletedBefore);
+  assert.deepEqual(livePlan, livePlanBefore);
+
+  const senderDeleted = {
+    modules: { todos: { items: [] } },
+    _sync: {
+      tombstones: [makeTombstone({ id: 'todo-2', pathSegments, vector: { sender: 1 } })]
+    }
+  };
+  const receiverLive = {
+    modules: {
+      todos: {
+        items: [{ id: 'todo-2', txt: 'receiver concurrent edit', _sync: { vector: { receiver: 1 } } }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiverLiveBefore = clone(receiverLive);
+  const deletePlan = await SyncCore.buildMergePlan(senderDeleted, receiverLive, scope);
+  const deleteOperation = deletePlan.operations.find(item => item.identity.id === 'todo-2');
+
+  assert.equal(deleteOperation.category, 'deleteConflict');
+  assert.equal(deleteOperation.selected, false);
+  const reverseDefault = await SyncCore.applyMergePlan(deletePlan, receiverLive);
+  const reverseSelected = await SyncCore.applyMergePlan(deletePlan, receiverLive, {
+    selectedOperationIds: new Set([deleteOperation.id])
+  });
+  assert.equal(reverseDefault.modules.todos.items[0].txt, 'receiver concurrent edit');
+  assert.equal(reverseSelected.modules.todos.items[0].txt, 'receiver concurrent edit');
+  assert.deepEqual(receiverLive, receiverLiveBefore);
 });
 
 test('applyMergePlan merges selected same tombstone vectors without creating visible records', async () => {

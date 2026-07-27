@@ -322,6 +322,16 @@
         );
         if (next !== OMIT) merged.push(next);
       }
+      if (Array.isArray(receiverValue)) {
+        const retainedFileIds = new Set(
+          merged.filter(isFileReference).map(item => item.fileId)
+        );
+        for (const item of receiverValue) {
+          if (!isFileReference(item) || retainedFileIds.has(item.fileId)) continue;
+          merged.push(deepClone(item));
+          retainedFileIds.add(item.fileId);
+        }
+      }
       return merged;
     }
     if (!isObject(senderValue)) return senderValue;
@@ -837,7 +847,16 @@
         continue;
       }
 
-      if (operation.category === 'conflictCopy') {
+      if (
+        operation.category === 'conflictCopy' ||
+        (
+          operation.category === 'deleteConflict' &&
+          operation.sender &&
+          operation.sender.kind === 'record' &&
+          operation.receiver &&
+          operation.receiver.kind === 'tombstone'
+        )
+      ) {
         const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, true);
         if (!collection) throw new Error('Unable to resolve collection path');
         const conflictCopy = includeAttachments
@@ -850,7 +869,7 @@
         conflictCopy._sync.conflictOf = operation.identity.id;
         conflictCopy._sync.contentHash = await hashRecord(conflictCopy);
         collection.push(conflictCopy);
-        if (tombstoneMap.delete(key)) tombstonesDirty = true;
+        if (operation.category === 'conflictCopy' && tombstoneMap.delete(key)) tombstonesDirty = true;
         continue;
       }
 
@@ -998,16 +1017,17 @@
     return value;
   }
 
-  function validateScopePayload(scope, allowedModules) {
+  function validateScopePayload(scope, allowedModules, label) {
+    label = label || 'scope';
     requireExactFields(
       scope,
       ['modules', 'includeAttachments', 'includeSettings'],
       ['modules', 'includeAttachments', 'includeSettings'],
-      'scope'
+      label
     );
-    validateEnvelopeModules(scope.modules, allowedModules, 'scope.modules');
-    requireBoolean(scope.includeAttachments, 'scope.includeAttachments');
-    requireBoolean(scope.includeSettings, 'scope.includeSettings');
+    validateEnvelopeModules(scope.modules, allowedModules, label + '.modules');
+    requireBoolean(scope.includeAttachments, label + '.includeAttachments');
+    requireBoolean(scope.includeSettings, label + '.includeSettings');
   }
 
   function requireScopeModuleId(moduleId, scopeModules, allowedModules, label) {
@@ -1019,7 +1039,12 @@
 
   function validateManifestModuleSummary(summary, index, scopeModules, allowedModules) {
     const label = 'manifest.modules[' + index + ']';
-    if (!isPlainObject(summary)) throw new Error(label + ' must be a plain object');
+    requireExactFields(
+      summary,
+      ['id', 'recordCount', 'tombstoneCount', 'attachmentCount', 'attachmentBytes', 'bytes'],
+      ['id', 'recordCount', 'tombstoneCount', 'attachmentCount', 'attachmentBytes', 'bytes'],
+      label
+    );
     requireScopeModuleId(summary.id, scopeModules, allowedModules, label + '.id');
     requireSafeNonNegativeInteger(summary.recordCount, label + '.recordCount');
     requireSafeNonNegativeInteger(summary.tombstoneCount, label + '.tombstoneCount');
@@ -1028,8 +1053,26 @@
     requireSafeNonNegativeInteger(summary.bytes, label + '.bytes');
   }
 
+  function validateManifestVector(vector, label) {
+    if (!isPlainObject(vector)) throw new Error(label + ' must be a plain object');
+    for (const deviceId of Object.keys(vector)) {
+      requireNonEmptyString(deviceId, label + ' device id');
+      requireSafeNonNegativeInteger(vector[deviceId], label + '.' + deviceId);
+    }
+  }
+
+  function requireSha256Hash(value, label) {
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+      throw new Error(label + ' must be a lowercase SHA-256 hash');
+    }
+  }
+
   function validateManifestIdentityEntry(entry, label, scopeModules, allowedModules, isRecord) {
-    if (!isPlainObject(entry)) throw new Error(label + ' must be a plain object');
+    const identityFields = ['id', 'parentId', 'moduleId', 'pathSegments', 'vector', 'deleted', 'size'];
+    const fields = isRecord
+      ? identityFields.concat(['contentHash', 'attachmentCount', 'attachmentBytes'])
+      : identityFields;
+    requireExactFields(entry, fields, fields, label);
     requireNonEmptyString(entry.id, label + '.id');
     requireStringOrNull(entry.parentId, label + '.parentId');
     const pathSegments = requireStringArray(entry.pathSegments, label + '.pathSegments');
@@ -1040,16 +1083,27 @@
     const moduleId = requireNonEmptyString(entry.moduleId, label + '.moduleId');
     if (moduleId !== pathModuleId) throw new Error(label + '.moduleId must match pathSegments[1]');
     requireScopeModuleId(moduleId, scopeModules, allowedModules, label + '.moduleId');
+    validateManifestVector(entry.vector, label + '.vector');
+    requireBoolean(entry.deleted, label + '.deleted');
     requireSafeNonNegativeInteger(entry.size, label + '.size');
     if (isRecord) {
+      requireSha256Hash(entry.contentHash, label + '.contentHash');
       requireSafeNonNegativeInteger(entry.attachmentCount, label + '.attachmentCount');
       requireSafeNonNegativeInteger(entry.attachmentBytes, label + '.attachmentBytes');
+    } else if (entry.deleted !== true) {
+      throw new Error(label + '.deleted must be true');
     }
   }
 
   function validateManifestAttachmentEntry(attachment, index, scopeModules, allowedModules) {
     const label = 'manifest.attachments[' + index + ']';
-    if (!isPlainObject(attachment)) throw new Error(label + ' must be a plain object');
+    const fields = ['fileId', 'name', 'type', 'size', 'kind', 'recordId', 'parentId', 'moduleId', 'pathSegments'];
+    requireExactFields(attachment, fields, fields, label);
+    requireNonEmptyString(attachment.fileId, label + '.fileId');
+    requireStringOrNull(attachment.name, label + '.name');
+    requireStringOrNull(attachment.type, label + '.type');
+    requireStringOrNull(attachment.kind, label + '.kind');
+    requireNonEmptyString(attachment.recordId, label + '.recordId');
     requireSafeNonNegativeInteger(attachment.size, label + '.size');
     const pathSegments = requireStringArray(attachment.pathSegments, label + '.pathSegments');
     if (pathSegments[0] !== 'modules') throw new Error(label + '.pathSegments must begin with modules');
@@ -1063,14 +1117,18 @@
   }
 
   function validateManifestPayload(manifest, limits) {
-    if (!isPlainObject(manifest)) throw new Error('manifest must be a plain object');
+    requireExactFields(
+      manifest,
+      ['protocol', 'scope', 'modules', 'records', 'tombstones', 'attachments', 'settings'],
+      ['protocol', 'scope', 'modules', 'records', 'tombstones', 'attachments'],
+      'manifest'
+    );
     if (manifest.protocol !== 2) throw new Error('manifest must use protocol 2');
-    if (!isPlainObject(manifest.scope)) throw new Error('manifest.scope must be a plain object');
     const allowedModules = limits && limits.allowedModules instanceof Set
       ? limits.allowedModules
       : new Set(Array.isArray(limits && limits.allowedModules) ? limits.allowedModules : []);
-    const scopeModules = requireArrayField(manifest.scope, 'modules', 'manifest.scope.modules');
-    assertModuleIdsAllowed(scopeModules, allowedModules, 'manifest.scope.modules');
+    validateScopePayload(manifest.scope, allowedModules, 'manifest.scope');
+    const scopeModules = manifest.scope.modules;
     const scopeModuleSet = new Set(scopeModules);
     const moduleSummaries = requireArrayField(manifest, 'modules', 'manifest.modules');
     for (let index = 0; index < moduleSummaries.length; index += 1) {
@@ -1081,6 +1139,9 @@
       throw new Error('manifest bytes exceed limit');
     }
     const attachments = requireArrayField(manifest, 'attachments', 'manifest.attachments');
+    if (!manifest.scope.includeAttachments && attachments.length !== 0) {
+      throw new Error('manifest.scope.includeAttachments false requires attachments to be empty');
+    }
     if (attachments.length > requireFiniteNonNegativeNumber(limits.maxAttachmentCount, 'max attachment count')) {
       throw new Error('attachment count exceeds limit');
     }
@@ -1101,19 +1162,48 @@
     for (let index = 0; index < tombstones.length; index += 1) {
       validateManifestIdentityEntry(tombstones[index], 'manifest.tombstones[' + index + ']', scopeModuleSet, allowedModules, false);
     }
-    if (hasOwn(manifest, 'settings')) {
-      if (!isPlainObject(manifest.settings)) throw new Error('manifest.settings must be a plain object');
+    if (!manifest.scope.includeAttachments) {
+      for (const summary of moduleSummaries) {
+        if (summary.attachmentCount !== 0 || summary.attachmentBytes !== 0) {
+          throw new Error('manifest.scope.includeAttachments false requires module attachmentCount and attachmentBytes to be zero');
+        }
+      }
+      for (const record of records) {
+        if (record.attachmentCount !== 0 || record.attachmentBytes !== 0) {
+          throw new Error('manifest.scope.includeAttachments false requires record attachmentCount and attachmentBytes to be zero');
+        }
+      }
+    }
+    if (manifest.scope.includeSettings) {
+      if (!hasOwn(manifest, 'settings')) throw new Error('manifest.settings is required when includeSettings is true');
+      requireExactFields(
+        manifest.settings,
+        ['contentHash', 'size'],
+        ['contentHash', 'size'],
+        'manifest.settings'
+      );
+      requireSha256Hash(manifest.settings.contentHash, 'manifest.settings.contentHash');
       requireSafeNonNegativeInteger(manifest.settings.size, 'manifest.settings.size');
+    } else if (hasOwn(manifest, 'settings')) {
+      throw new Error('manifest.scope.includeSettings false requires settings to be absent');
     }
   }
 
   function validateChunkPayload(envelope, limits) {
+    requireExactFields(
+      envelope,
+      ['protocol', 'type', 'chunk'],
+      ['protocol', 'type', 'chunk'],
+      'data-chunk'
+    );
     const chunk = envelope.chunk;
-    if (!isPlainObject(chunk)) throw new Error('chunk must be a plain object');
-    const index = requireFiniteNonNegativeNumber(chunk.index, 'chunk index');
-    const total = requireFiniteNonNegativeNumber(chunk.total, 'chunk total');
-    if (!Number.isInteger(index)) throw new Error('chunk index must be an integer');
-    if (!Number.isInteger(total) || total <= 0) throw new Error('chunk total must be a positive integer');
+    requireExactFields(chunk, ['index', 'total', 'payload'], ['index', 'total', 'payload'], 'chunk');
+    const index = requireSafeNonNegativeInteger(chunk.index, 'chunk index');
+    const total = requireSafeNonNegativeInteger(chunk.total, 'chunk total');
+    if (total <= 0) throw new Error('chunk total must be a positive integer');
+    if (total > optionalIntegerLimit(limits, 'maxChunkCount', Number.MAX_SAFE_INTEGER)) {
+      throw new Error('chunk total exceeds limit');
+    }
     if (index >= total) throw new Error('chunk index must be smaller than chunk total');
     const payload = chunk.payload;
     if (typeof payload !== 'string') throw new Error('chunk payload must be a string');
@@ -1122,6 +1212,7 @@
     }
     const seenChunkIndexes = limits && limits.seenChunkIndexes instanceof Set ? limits.seenChunkIndexes : new Set();
     if (seenChunkIndexes.has(index)) throw new Error('duplicate chunk index');
+    seenChunkIndexes.add(index);
   }
 
   function validateTransferCounts(envelope, limits, includeAttachments) {
@@ -1224,7 +1315,10 @@
     if (!KNOWN_ENVELOPE_TYPES.has(envelope.type)) throw new Error('unknown type: ' + envelope.type);
     if (!isObject(limits)) throw new TypeError('limits must be a plain object');
 
-    if (envelope.type === 'manifest') validateManifestPayload(envelope.manifest, limits);
+    if (envelope.type === 'manifest') {
+      requireExactFields(envelope, ['protocol', 'type', 'manifest'], ['protocol', 'type', 'manifest'], 'manifest');
+      validateManifestPayload(envelope.manifest, limits);
+    }
     else if (envelope.type === 'data-chunk') validateChunkPayload(envelope, limits);
     else validateControlEnvelope(envelope, limits);
     return true;
