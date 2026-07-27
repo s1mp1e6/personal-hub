@@ -4,6 +4,9 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..', 'site');
+const DB_NAME = 'personal_hub_local_first';
+const STORE_NAME = 'kv';
+const STATE_KEY = 'personal_hub_v6';
 
 function serveFile(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -27,6 +30,31 @@ async function openSync(page) {
   await page.locator('#qrScanBox').waitFor({ state: 'attached' });
 }
 
+async function readPersistedState(page) {
+  return page.evaluate(({ dbName, storeName, key }) => new Promise((resolve, reject) => {
+    const req = indexedDB.open(dbName);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      try {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const getReq = store.get(key);
+        getReq.onsuccess = () => resolve(getReq.result ?? null);
+        getReq.onerror = () => reject(getReq.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      } catch (err) {
+        db.close();
+        reject(err);
+      }
+    };
+  }), { dbName: DB_NAME, storeName: STORE_NAME, key: STATE_KEY });
+}
+
 async function main() {
   const server = http.createServer(serveFile);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -41,7 +69,6 @@ async function main() {
     receiver.on('dialog', d => d.accept());
     const marker = `legacy-sync-${Date.now()}`;
     await sender.goto(`${url}?sync=sender-${Date.now()}`, { waitUntil: 'networkidle' });
-    await receiver.goto(`${url}?sync=receiver-${Date.now()}`, { waitUntil: 'networkidle' });
 
     await sender.locator('.nav-item[data-mid="todos"]').click();
     await sender.locator('#fab').click();
@@ -49,9 +76,14 @@ async function main() {
     await sender.locator('#modalSave').click();
     await sender.getByText(marker).waitFor();
 
+    await receiver.goto(`${url}?sync=receiver-${Date.now()}`, { waitUntil: 'networkidle' });
     await receiver.locator('.nav-item[data-mid="todos"]').click();
     if (await receiver.getByText(marker).count()) {
       throw new Error('isolated receiver unexpectedly contained the legacy sync marker before transfer');
+    }
+    const receiverState = await readPersistedState(receiver);
+    if (JSON.stringify(receiverState || null).includes(marker)) {
+      throw new Error('isolated receiver IndexedDB unexpectedly contained the legacy sync marker before transfer');
     }
 
     await openSync(sender);
