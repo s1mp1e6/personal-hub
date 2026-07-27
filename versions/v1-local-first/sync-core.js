@@ -791,7 +791,7 @@
       } else if (senderRecord && receiverTombstone) {
         const relation = compareVectors(senderRecord.meta.vector, receiverTombstone.meta.vector);
         if (relation === 'newer') category = 'add';
-        else if (relation === 'concurrent') category = 'deleteConflict';
+        else if (relation === 'concurrent' || relation === 'equal') category = 'deleteConflict';
         else category = 'same';
       } else if (senderTombstone && receiverTombstone) {
         category = 'same';
@@ -1084,6 +1084,11 @@
   function validateEnvelopeModules(value, allowedModules, label) {
     if (!Array.isArray(value)) throw new Error(label + ' must be an array');
     assertModuleIdsAllowed(value, allowedModules, label);
+    const seen = new Set();
+    for (const moduleId of value) {
+      if (seen.has(moduleId)) throw new Error(label + ' contains duplicate module id: ' + moduleId);
+      seen.add(moduleId);
+    }
     return value;
   }
 
@@ -1423,7 +1428,7 @@
 
     if (envelope.type === 'scope-offer' || envelope.type === 'manifest-request') {
       requireExactFields(envelope, ['protocol', 'type', 'scope'], ['protocol', 'type', 'scope'], envelope.type);
-      validateScopePayload(envelope.scope, allowedModules);
+      validateScopePayload(envelope.scope, allowedModules, envelope.type + '.scope');
     } else if (envelope.type === 'plan-selection') {
       requireExactFields(
         envelope,

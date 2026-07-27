@@ -409,6 +409,81 @@ test('sender tombstones against live receiver records choose pendingDelete, keep
   }
 });
 
+test('equal live-tombstone vectors are delete conflicts in both directions', async () => {
+  const pathSegments = ['modules', 'todos', 'items'];
+  const vector = { deviceA: 2 };
+  const liveState = text => ({
+    modules: {
+      todos: {
+        items: [{ id: 'todo-equal', txt: text, _sync: { vector: clone(vector) } }]
+      }
+    },
+    _sync: { tombstones: [] }
+  });
+  const tombstoneState = () => ({
+    modules: { todos: { items: [] } },
+    _sync: {
+      tombstones: [makeTombstone({ id: 'todo-equal', pathSegments, vector })]
+    }
+  });
+  const cases = [
+    {
+      name: 'sender live and receiver tombstone',
+      sender: liveState('sender equal edit'),
+      receiver: tombstoneState(),
+      senderIsLive: true
+    },
+    {
+      name: 'sender tombstone and receiver live',
+      sender: tombstoneState(),
+      receiver: liveState('receiver equal edit'),
+      senderIsLive: false
+    }
+  ];
+
+  for (const item of cases) {
+    const senderBefore = clone(item.sender);
+    const receiverBefore = clone(item.receiver);
+    const plan = await SyncCore.buildMergePlan(item.sender, item.receiver, {
+      modules: ['todos'],
+      includeAttachments: false,
+      includeSettings: false
+    });
+    const operation = plan.operations.find(entry => entry.identity.id === 'todo-equal');
+    const planBefore = clone(plan);
+
+    assert.equal(operation.category, 'deleteConflict', item.name);
+    assert.equal(operation.selected, false, item.name);
+    assert.equal(plan.summary.deleteConflict, 1, item.name);
+    assert.equal(plan.summary.same, 0, item.name);
+
+    const defaultApplied = await SyncCore.applyMergePlan(plan, item.receiver);
+    const selectedApplied = await SyncCore.applyMergePlan(plan, item.receiver, {
+      selectedOperationIds: new Set([operation.id]),
+      idFactory() {
+        return 'todo-equal-conflict';
+      }
+    });
+
+    if (item.senderIsLive) {
+      assert.deepEqual(defaultApplied.modules.todos.items, [], item.name);
+      assert.equal(defaultApplied._sync.tombstones.length, 1, item.name);
+      assert.equal(selectedApplied.modules.todos.items.length, 1, item.name);
+      assert.equal(selectedApplied.modules.todos.items[0].id, 'todo-equal-conflict', item.name);
+      assert.equal(selectedApplied.modules.todos.items[0].txt, 'sender equal edit', item.name);
+      assert.equal(selectedApplied.modules.todos.items[0]._sync.conflictOf, 'todo-equal', item.name);
+      assert.equal(selectedApplied._sync.tombstones.length, 1, item.name);
+    } else {
+      assert.equal(defaultApplied.modules.todos.items[0].txt, 'receiver equal edit', item.name);
+      assert.equal(selectedApplied.modules.todos.items[0].txt, 'receiver equal edit', item.name);
+      assert.deepEqual(selectedApplied._sync.tombstones, [], item.name);
+    }
+    assert.deepEqual(item.sender, senderBefore, item.name);
+    assert.deepEqual(item.receiver, receiverBefore, item.name);
+    assert.deepEqual(plan, planBefore, item.name);
+  }
+});
+
 test('applyMergePlan preserves receiver values, copies conflicts, and leaves deletions off by default', async () => {
   const { sender, receiver, scope } = buildMergeFixture();
   const plan = await SyncCore.buildMergePlan(sender, receiver, scope);
@@ -1017,6 +1092,54 @@ test('validateEnvelope strictly validates every known non-manifest transfer enve
     ),
     /prototype/i
   );
+});
+
+test('validateEnvelope rejects duplicate modules through the shared module validator', () => {
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxEnvelopeBytes: 1000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    maxChunkCount: 8,
+    maxTransferBytes: 1000,
+    seenChunkIndexes: new Set()
+  };
+  const duplicateScope = {
+    modules: ['todos', 'todos'],
+    includeAttachments: false,
+    includeSettings: false
+  };
+
+  for (const [name, envelope, expectedPattern] of [
+    [
+      'scope-offer',
+      { protocol: 2, type: 'scope-offer', scope: clone(duplicateScope) },
+      /scope-offer\.scope\.modules.*duplicate.*todos/i
+    ],
+    [
+      'manifest-request',
+      { protocol: 2, type: 'manifest-request', scope: clone(duplicateScope) },
+      /manifest-request\.scope\.modules.*duplicate.*todos/i
+    ],
+    [
+      'data-start',
+      {
+        protocol: 2,
+        type: 'data-start',
+        transferId: 'transfer-1',
+        modules: ['todos', 'todos'],
+        totalChunks: 1,
+        totalBytes: 10,
+        attachmentCount: 0,
+        attachmentBytes: 0
+      },
+      /data-start\.modules.*duplicate.*todos/i
+    ]
+  ]) {
+    assert.throws(() => SyncCore.validateEnvelope(envelope, limits), expectedPattern, name);
+  }
 });
 
 test('validateEnvelope rejects malformed manifest collections with field-specific errors', async () => {
