@@ -75,6 +75,11 @@ async function main() {
     await sender.locator('#f_txt').fill(marker);
     await sender.locator('#modalSave').click();
     await sender.getByText(marker).waitFor();
+    await sender.evaluate(() => saveNow());
+    const senderState = await readPersistedState(sender);
+    if (!JSON.stringify(senderState || null).includes(marker)) {
+      throw new Error('sender IndexedDB did not contain the legacy sync marker before receiver navigation');
+    }
 
     await receiver.goto(`${url}?sync=receiver-${Date.now()}`, { waitUntil: 'networkidle' });
     await receiver.locator('.nav-item[data-mid="todos"]').click();
