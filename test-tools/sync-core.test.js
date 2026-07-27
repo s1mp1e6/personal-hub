@@ -694,6 +694,65 @@ test('merge scope without attachments preserves nested receiver attachment subtr
   assert.deepEqual(receiver, receiverBefore);
 });
 
+test('merge scope without attachments never matches no-id array items by index', async () => {
+  const fileA = { fileId: 'file-a', name: 'a.pdf', type: 'application/pdf', size: 10, kind: 'doc' };
+  const fileB = { fileId: 'file-b', name: 'b.pdf', type: 'application/pdf', size: 20, kind: 'doc' };
+  const senderFile = { fileId: 'sender-file', name: 'sender.pdf', type: 'application/pdf', size: 30, kind: 'doc' };
+  const cases = [
+    {
+      name: 'shifted receiver items',
+      senderItems: [{ label: 'B', attachment: senderFile }],
+      receiverItems: [{ label: 'A', attachment: fileA }, { label: 'B', attachment: fileB }],
+      expected: [{ label: 'B', attachment: fileB }, { attachment: fileA }]
+    },
+    {
+      name: 'reordered items',
+      senderItems: [{ label: 'B' }, { label: 'A' }],
+      receiverItems: [{ label: 'A', attachment: fileA }, { label: 'B', attachment: fileB }],
+      expected: [{ label: 'B', attachment: fileB }, { label: 'A', attachment: fileA }]
+    },
+    {
+      name: 'duplicate business content is ambiguous',
+      senderItems: [{ label: 'B' }],
+      receiverItems: [{ label: 'B', attachment: fileA }, { label: 'B', attachment: fileB }],
+      expected: [{ label: 'B' }, { attachment: fileA }, { attachment: fileB }]
+    }
+  ];
+
+  for (const item of cases) {
+    const sender = {
+      modules: {
+        todos: {
+          items: [{ id: 'todo-1', choices: clone(item.senderItems), _sync: { vector: { sender: 2 } } }]
+        }
+      },
+      _sync: { tombstones: [] }
+    };
+    const receiver = {
+      modules: {
+        todos: {
+          items: [{ id: 'todo-1', choices: clone(item.receiverItems), _sync: { vector: { sender: 1 } } }]
+        }
+      },
+      _sync: { tombstones: [] }
+    };
+    const senderBefore = clone(sender);
+    const receiverBefore = clone(receiver);
+    const plan = await SyncCore.buildMergePlan(sender, receiver, {
+      modules: ['todos'],
+      includeAttachments: false,
+      includeSettings: false
+    });
+    const applied = await SyncCore.applyMergePlan(plan, receiver);
+
+    assert.deepEqual(visible(applied.modules.todos.items[0].choices), item.expected, item.name);
+    assert.equal(JSON.stringify(plan).includes('sender-file'), false, item.name);
+    assert.equal(JSON.stringify(applied).includes('sender-file'), false, item.name);
+    assert.deepEqual(sender, senderBefore, item.name);
+    assert.deepEqual(receiver, receiverBefore, item.name);
+  }
+});
+
 test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
   const manifest = await SyncCore.buildManifest(
     {
@@ -1761,16 +1820,153 @@ test('validateEnvelope requires module summaries to match scoped manifest collec
     ]),
     [
       'total attachment count mismatch',
-      { ...manifest, attachments: manifest.attachments.concat(clone(manifest.attachments[0])) },
+      {
+        ...manifest,
+        records: manifest.records.map(record =>
+          record.moduleId === 'todos'
+            ? {
+                ...record,
+                attachmentCount: record.attachmentCount + 1,
+                attachmentBytes: record.attachmentBytes + manifest.attachments[0].size
+              }
+            : record
+        ),
+        attachments: manifest.attachments.concat({ ...clone(manifest.attachments[0]), fileId: 'second-file' })
+      },
       /manifest\.modules.*todos.*attachmentCount.*match/i
     ],
     [
       'total attachment bytes mismatch',
       {
         ...manifest,
+        records: manifest.records.map(record =>
+          record.moduleId === 'todos'
+            ? { ...record, attachmentBytes: record.attachmentBytes + 1 }
+            : record
+        ),
         attachments: manifest.attachments.map(item => ({ ...item, size: item.size + 1 }))
       },
       /manifest\.modules.*todos.*attachmentBytes.*match/i
+    ]
+  ]) {
+    assert.throws(() => SyncCore.validateEnvelope(envelopeFor(nextManifest), limits), expectedPattern, name);
+  }
+});
+
+test('validateEnvelope enforces live record identities and attachment references', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'todo text',
+            attachment: {
+              fileId: 'todo-file',
+              name: 'todo.pdf',
+              type: 'application/pdf',
+              size: 21,
+              kind: 'doc'
+            }
+          }]
+        }
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({ id: 'todo-gone', pathSegments: ['modules', 'todos', 'items'], vector: { deviceA: 2 } })
+        ]
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: false }
+  );
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 20000,
+    maxAttachmentCount: 8,
+    maxAttachmentBytes: 2000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const record = manifest.records[0];
+  const tombstone = manifest.tombstones[0];
+  const attachment = manifest.attachments[0];
+  const envelopeFor = nextManifest => ({ protocol: 2, type: 'manifest', manifest: nextManifest });
+  const adjustSummary = (nextManifest, changes) => ({
+    ...nextManifest,
+    modules: nextManifest.modules.map(summary =>
+      summary.id === 'todos'
+        ? Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, changes[key] == null ? value : value + changes[key]]))
+        : summary
+    )
+  });
+
+  assert.equal(SyncCore.validateEnvelope(envelopeFor(manifest), limits), true);
+
+  const duplicateRecordManifest = adjustSummary({
+    ...manifest,
+    records: manifest.records.concat(clone(record))
+  }, { recordCount: 1, bytes: record.size });
+  const duplicateTombstoneManifest = adjustSummary({
+    ...manifest,
+    tombstones: manifest.tombstones.concat(clone(tombstone))
+  }, { tombstoneCount: 1 });
+  const duplicateAttachmentManifest = adjustSummary({
+    ...manifest,
+    records: [{
+      ...record,
+      attachmentCount: record.attachmentCount + 1,
+      attachmentBytes: record.attachmentBytes + attachment.size
+    }],
+    attachments: manifest.attachments.concat(clone(attachment))
+  }, { attachmentCount: 1, attachmentBytes: attachment.size });
+
+  for (const [name, nextManifest, expectedPattern] of [
+    [
+      'record must be live',
+      { ...manifest, records: [{ ...record, deleted: true }] },
+      /manifest\.records\[0\]\.deleted.*false/i
+    ],
+    ['duplicate record identity', duplicateRecordManifest, /duplicate record identity/i],
+    ['duplicate tombstone identity', duplicateTombstoneManifest, /duplicate tombstone identity/i],
+    [
+      'record and tombstone identity conflict',
+      {
+        ...manifest,
+        tombstones: [{
+          ...tombstone,
+          id: record.id,
+          parentId: record.parentId,
+          moduleId: record.moduleId,
+          pathSegments: clone(record.pathSegments)
+        }]
+      },
+      /record.*tombstone.*identity.*conflict/i
+    ],
+    [
+      'record attachment count mismatch',
+      { ...manifest, records: [{ ...record, attachmentCount: record.attachmentCount + 1 }] },
+      /record.*todo-1.*attachmentCount.*match/i
+    ],
+    [
+      'record attachment bytes mismatch',
+      { ...manifest, records: [{ ...record, attachmentBytes: record.attachmentBytes + 1 }] },
+      /record.*todo-1.*attachmentBytes.*match/i
+    ],
+    [
+      'dangling attachment',
+      { ...manifest, attachments: [{ ...attachment, recordId: 'missing-record' }] },
+      /attachment.*live record.*missing-record/i
+    ],
+    [
+      'attachment points to tombstone',
+      { ...manifest, attachments: [{ ...attachment, recordId: tombstone.id }] },
+      /attachment.*tombstone.*todo-gone/i
+    ],
+    ['duplicate attachment identity', duplicateAttachmentManifest, /duplicate attachment identity/i],
+    [
+      'unsupported attachment hash metadata',
+      { ...manifest, attachments: [{ ...attachment, contentHash: record.contentHash }] },
+      /manifest\.attachments\[0\].*unknown field.*contentHash/i
     ]
   ]) {
     assert.throws(() => SyncCore.validateEnvelope(envelopeFor(nextManifest), limits), expectedPattern, name);

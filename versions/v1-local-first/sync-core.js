@@ -330,12 +330,35 @@
     return subtree;
   }
 
-  function matchingArrayIndex(items, value, index) {
-    if (!Array.isArray(items)) return -1;
+  function attachmentFreeBusinessKey(value) {
+    const comparable = buildComparableValue(value, false);
+    if (comparable === OMIT) return null;
+    if (Array.isArray(comparable) && comparable.length === 0) return null;
+    if (isObject(comparable) && Object.keys(comparable).length === 0) return null;
+    return JSON.stringify(stableValue(comparable, false));
+  }
+
+  function matchingArrayIndex(senderItems, receiverItems, index) {
+    if (!Array.isArray(receiverItems)) return -1;
+    const value = senderItems[index];
     if (isObject(value) && value.id != null) {
-      return items.findIndex(item => isObject(item) && item.id != null && String(item.id) === String(value.id));
+      const matches = receiverItems
+        .map((item, itemIndex) => ({ item: item, index: itemIndex }))
+        .filter(entry => isObject(entry.item) && entry.item.id != null && String(entry.item.id) === String(value.id));
+      return matches.length === 1 ? matches[0].index : -1;
     }
-    return index < items.length ? index : -1;
+    const businessKey = attachmentFreeBusinessKey(value);
+    if (businessKey == null) return -1;
+    const senderMatches = senderItems.filter(item =>
+      (!isObject(item) || item.id == null) && attachmentFreeBusinessKey(item) === businessKey
+    );
+    if (senderMatches.length !== 1) return -1;
+    const receiverMatches = receiverItems
+      .map((item, itemIndex) => ({ item: item, index: itemIndex }))
+      .filter(entry =>
+        (!isObject(entry.item) || entry.item.id == null) && attachmentFreeBusinessKey(entry.item) === businessKey
+      );
+    return receiverMatches.length === 1 ? receiverMatches[0].index : -1;
   }
 
   function canMergeAttachmentContainers(senderValue, receiverValue) {
@@ -360,7 +383,7 @@
       const merged = [];
       const handledReceiverIndexes = new Set();
       for (let index = 0; index < senderValue.length; index += 1) {
-        const receiverIndex = matchingArrayIndex(receiverValue, senderValue[index], index);
+        const receiverIndex = matchingArrayIndex(senderValue, receiverValue, index);
         const receiverItem = receiverIndex >= 0 ? receiverValue[receiverIndex] : undefined;
         const canMerge = canMergeAttachmentContainers(senderValue[index], receiverItem);
         const next = mergeWithoutAttachmentReferences(
@@ -1134,6 +1157,7 @@
     requireBoolean(entry.deleted, label + '.deleted');
     requireSafeNonNegativeInteger(entry.size, label + '.size');
     if (isRecord) {
+      if (entry.deleted !== false) throw new Error(label + '.deleted must be false');
       requireSha256Hash(entry.contentHash, label + '.contentHash');
       requireSafeNonNegativeInteger(entry.attachmentCount, label + '.attachmentCount');
       requireSafeNonNegativeInteger(entry.attachmentBytes, label + '.attachmentBytes');
@@ -1225,6 +1249,23 @@
     for (let index = 0; index < tombstones.length; index += 1) {
       validateManifestIdentityEntry(tombstones[index], 'manifest.tombstones[' + index + ']', scopeModuleSet, allowedModules, false);
     }
+    const recordIdentityMap = new Map();
+    for (const record of records) {
+      const key = entityKey(record.pathSegments, record.parentId, record.id);
+      if (recordIdentityMap.has(key)) throw new Error('duplicate record identity: ' + record.id);
+      recordIdentityMap.set(key, record);
+    }
+    const tombstoneIdentityMap = new Map();
+    for (const tombstone of tombstones) {
+      const key = entityKey(tombstone.pathSegments, tombstone.parentId, tombstone.id);
+      if (tombstoneIdentityMap.has(key)) throw new Error('duplicate tombstone identity: ' + tombstone.id);
+      tombstoneIdentityMap.set(key, tombstone);
+    }
+    for (const [key, tombstone] of tombstoneIdentityMap) {
+      if (recordIdentityMap.has(key)) {
+        throw new Error('record and tombstone identity conflict: ' + tombstone.id);
+      }
+    }
     if (!manifest.scope.includeAttachments) {
       for (const summary of moduleSummaries) {
         if (summary.attachmentCount !== 0 || summary.attachmentBytes !== 0) {
@@ -1235,6 +1276,36 @@
         if (record.attachmentCount !== 0 || record.attachmentBytes !== 0) {
           throw new Error('manifest.scope.includeAttachments false requires record attachmentCount and attachmentBytes to be zero');
         }
+      }
+    }
+    const recordAttachmentSummaries = new Map(
+      Array.from(recordIdentityMap.keys(), key => [key, { attachmentCount: 0, attachmentBytes: 0 }])
+    );
+    const attachmentIdentities = new Set();
+    for (const attachment of attachments) {
+      const recordKey = entityKey(attachment.pathSegments, attachment.parentId, attachment.recordId);
+      if (tombstoneIdentityMap.has(recordKey)) {
+        throw new Error('attachment references tombstone: ' + attachment.recordId);
+      }
+      if (!recordIdentityMap.has(recordKey)) {
+        throw new Error('attachment must reference live record: ' + attachment.recordId);
+      }
+      const attachmentKey = JSON.stringify([recordKey, attachment.fileId]);
+      if (attachmentIdentities.has(attachmentKey)) {
+        throw new Error('duplicate attachment identity: ' + attachment.fileId);
+      }
+      attachmentIdentities.add(attachmentKey);
+      const summary = recordAttachmentSummaries.get(recordKey);
+      summary.attachmentCount += 1;
+      summary.attachmentBytes += attachment.size;
+    }
+    for (const [key, record] of recordIdentityMap) {
+      const actual = recordAttachmentSummaries.get(key);
+      if (record.attachmentCount !== actual.attachmentCount) {
+        throw new Error('record ' + record.id + ' attachmentCount does not match manifest.attachments');
+      }
+      if (record.attachmentBytes !== actual.attachmentBytes) {
+        throw new Error('record ' + record.id + ' attachmentBytes does not match manifest.attachments');
       }
     }
     const actualSummaries = new Map(
