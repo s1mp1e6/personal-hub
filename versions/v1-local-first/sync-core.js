@@ -16,9 +16,27 @@
         ? require('node:util').TextEncoder
         : null;
   const encoder = TextEncoderCtor ? new TextEncoderCtor() : null;
+  const OMIT = {};
+  const KNOWN_ENVELOPE_TYPES = new Set([
+    'scope-offer',
+    'manifest-request',
+    'manifest',
+    'plan-selection',
+    'data-start',
+    'data-chunk',
+    'data-end',
+    'commit-result',
+    'abort'
+  ]);
 
   function isObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function isPlainObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
   }
 
   function hasOwn(value, key) {
@@ -39,6 +57,11 @@
   }
 
   function normalizeCounter(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : 0;
+  }
+
+  function normalizeSize(value) {
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : 0;
   }
@@ -196,17 +219,268 @@
     return list;
   }
 
-  async function sha256Hex(text) {
-    if (!encoder) throw new Error('TextEncoder unavailable');
-    const bytes = encoder.encode(text);
+  function byteLengthOfText(text) {
+    const string = String(text);
+    if (encoder) return encoder.encode(string).length;
+    if (typeof Buffer !== 'undefined' && Buffer.byteLength) return Buffer.byteLength(string);
+    return string.length;
+  }
+
+  function serializedSize(value) {
+    const json = JSON.stringify(value);
+    return json == null ? 0 : byteLengthOfText(json);
+  }
+
+  function toNodeBuffer(bytes) {
+    if (typeof Buffer === 'undefined') throw new Error('Buffer unavailable');
+    if (Buffer.isBuffer(bytes)) return bytes;
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  function isArrayBufferLike(value) {
+    return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
+  }
+
+  function isArrayBufferViewLike(value) {
+    return !!value &&
+      typeof value === 'object' &&
+      typeof value.byteLength === 'number' &&
+      !!value.buffer &&
+      isArrayBufferLike(value.buffer);
+  }
+
+  async function digestBytes(bytes) {
     if (nodeCrypto && nodeCrypto.createHash) {
-      return nodeCrypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+      return nodeCrypto.createHash('sha256').update(toNodeBuffer(bytes)).digest('hex');
     }
     if (root.crypto && root.crypto.subtle) {
       const digest = await root.crypto.subtle.digest('SHA-256', bytes);
       return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
     }
     throw new Error('SHA-256 unavailable');
+  }
+
+  async function sha256Hex(text) {
+    if (!encoder) throw new Error('TextEncoder unavailable');
+    return digestBytes(encoder.encode(text));
+  }
+
+  function isFileReference(value) {
+    return isObject(value) && typeof value.fileId === 'string';
+  }
+
+  function summarizeFileReference(value) {
+    return {
+      fileId: value.fileId,
+      name: value.name == null ? null : String(value.name),
+      type: value.type == null ? null : String(value.type),
+      size: normalizeSize(value.size),
+      kind: value.kind == null ? null : String(value.kind)
+    };
+  }
+
+  function buildComparableValue(value, includeAttachments) {
+    if (Array.isArray(value)) {
+      const items = [];
+      for (const item of value) {
+        const next = buildComparableValue(item, includeAttachments);
+        if (next !== OMIT) items.push(next);
+      }
+      return items;
+    }
+    if (!isObject(value)) return value;
+    if (isFileReference(value)) return includeAttachments ? summarizeFileReference(value) : OMIT;
+    const clone = {};
+    for (const key of Object.keys(value)) {
+      if (key === '_sync') continue;
+      if (!includeAttachments && key === 'attType' && isFileReference(value.attachment)) continue;
+      const next = buildComparableValue(value[key], includeAttachments);
+      if (next === OMIT) continue;
+      defineOwn(clone, key, next);
+    }
+    return clone;
+  }
+
+  function collectAttachmentMetadata(value, info, list) {
+    if (Array.isArray(value)) {
+      for (const item of value) collectAttachmentMetadata(item, info, list);
+      return list;
+    }
+    if (!isObject(value)) return list;
+    if (isFileReference(value)) {
+      list.push({
+        fileId: value.fileId,
+        name: value.name == null ? null : String(value.name),
+        type: value.type == null ? null : String(value.type),
+        size: normalizeSize(value.size),
+        kind: value.kind == null ? null : String(value.kind),
+        recordId: info.id,
+        parentId: info.parentId,
+        moduleId: info.moduleId,
+        pathSegments: deepClone(info.pathSegments)
+      });
+      return list;
+    }
+    for (const key of Object.keys(value)) {
+      if (key === '_sync') continue;
+      collectAttachmentMetadata(value[key], info, list);
+    }
+    return list;
+  }
+
+  async function hashComparableValue(value) {
+    return sha256Hex(JSON.stringify(stableValue(value, false)));
+  }
+
+  function knownModulesFromState(state, set) {
+    const modules = isObject(state && state.modules) ? state.modules : {};
+    for (const moduleId of Object.keys(modules)) set.add(moduleId);
+  }
+
+  function normalizeScope(scope, knownModules) {
+    if (!isObject(scope)) throw new TypeError('scope must be a plain object');
+    const modules = [];
+    const seen = new Set();
+    const requested = Array.isArray(scope.modules) ? scope.modules : [];
+    for (const moduleId of requested) {
+      if (typeof moduleId !== 'string' || moduleId === '') {
+        throw new TypeError('scope.modules must contain non-empty strings');
+      }
+      if (seen.has(moduleId)) continue;
+      if (!knownModules.has(moduleId)) throw new Error('Unknown module: ' + moduleId);
+      seen.add(moduleId);
+      modules.push(moduleId);
+    }
+    return {
+      modules: modules,
+      includeAttachments: scope.includeAttachments === true,
+      includeSettings: scope.includeSettings === true
+    };
+  }
+
+  function buildIdentity(recordLike) {
+    return {
+      id: recordLike.id,
+      parentId: recordLike.parentId == null ? null : recordLike.parentId,
+      moduleId: recordLike.moduleId == null ? null : recordLike.moduleId,
+      pathSegments: deepClone(recordLike.pathSegments)
+    };
+  }
+
+  function emptySummary() {
+    return {
+      add: 0,
+      update: 0,
+      keep: 0,
+      conflictCopy: 0,
+      pendingDelete: 0,
+      deleteConflict: 0,
+      same: 0
+    };
+  }
+
+  async function buildRecordEntry(entity, includeAttachments) {
+    const comparable = buildComparableValue(entity.node, includeAttachments);
+    const attachments = includeAttachments ? collectAttachmentMetadata(entity.node, entity, []) : [];
+    return {
+      kind: 'record',
+      identity: buildIdentity(entity),
+      meta: {
+        id: entity.id,
+        parentId: entity.parentId == null ? null : entity.parentId,
+        moduleId: entity.moduleId == null ? null : entity.moduleId,
+        pathSegments: deepClone(entity.pathSegments),
+        vector: mergeVectors(entity.node._sync && entity.node._sync.vector),
+        contentHash: await hashComparableValue(comparable),
+        deleted: entity.node._sync && entity.node._sync.deleted === true,
+        size: serializedSize(comparable),
+        attachmentCount: attachments.length,
+        attachmentBytes: attachments.reduce((sum, item) => sum + normalizeSize(item.size), 0)
+      },
+      value: deepClone(entity.node),
+      attachments: attachments
+    };
+  }
+
+  function buildTombstoneEntry(record) {
+    const normalized = normalizeTombstone(record);
+    return {
+      kind: 'tombstone',
+      identity: buildIdentity(normalized),
+      meta: {
+        id: normalized.id,
+        parentId: normalized.parentId == null ? null : normalized.parentId,
+        moduleId: normalized.moduleId == null ? null : normalized.moduleId,
+        pathSegments: deepClone(normalized.pathSegments),
+        vector: mergeVectors(normalized._sync && normalized._sync.vector),
+        deleted: true,
+        size: 0
+      },
+      value: deepClone(normalized)
+    };
+  }
+
+  async function buildScopedView(state, scope) {
+    const migrated = await migrateState(state || {});
+    const selectedModules = new Set(scope.modules);
+    const records = new Map();
+    const tombstones = new Map();
+    const attachments = [];
+    const moduleSummaries = new Map();
+    for (const moduleId of scope.modules) {
+      moduleSummaries.set(moduleId, {
+        id: moduleId,
+        recordCount: 0,
+        tombstoneCount: 0,
+        attachmentCount: 0,
+        attachmentBytes: 0,
+        bytes: 0
+      });
+    }
+
+    const entities = collectEntities(migrated, [], null, []);
+    for (const entity of entities) {
+      if (!selectedModules.has(entity.moduleId)) continue;
+      const entry = await buildRecordEntry(entity, scope.includeAttachments);
+      records.set(entity.key, entry);
+      const moduleSummary = moduleSummaries.get(entity.moduleId);
+      moduleSummary.recordCount += 1;
+      moduleSummary.bytes += entry.meta.size;
+      moduleSummary.attachmentCount += entry.meta.attachmentCount;
+      moduleSummary.attachmentBytes += entry.meta.attachmentBytes;
+      for (const attachment of entry.attachments) attachments.push(deepClone(attachment));
+    }
+
+    const rootTombstones = Array.isArray(migrated._sync && migrated._sync.tombstones) ? migrated._sync.tombstones : [];
+    for (const tombstone of rootTombstones) {
+      const entry = buildTombstoneEntry(tombstone);
+      if (!selectedModules.has(entry.meta.moduleId)) continue;
+      tombstones.set(tombstoneKey(entry.value), entry);
+      moduleSummaries.get(entry.meta.moduleId).tombstoneCount += 1;
+    }
+
+    let settings = null;
+    if (scope.includeSettings) {
+      const settingsValue = {};
+      for (const key of Object.keys(migrated)) {
+        if (key === 'modules' || key === '_sync') continue;
+        defineOwn(settingsValue, key, deepClone(migrated[key]));
+      }
+      const comparableSettings = buildComparableValue(settingsValue, scope.includeAttachments);
+      settings = {
+        contentHash: await hashComparableValue(comparableSettings),
+        size: serializedSize(comparableSettings)
+      };
+    }
+
+    return {
+      migrated: migrated,
+      records: records,
+      tombstones: tombstones,
+      attachments: scope.includeAttachments ? attachments : [],
+      modules: scope.modules.map(moduleId => deepClone(moduleSummaries.get(moduleId))),
+      settings: settings
+    };
   }
 
   async function hashRecord(record) {
@@ -299,10 +573,394 @@
     return nextState;
   }
 
+  async function buildManifest(state, scope) {
+    const knownModules = new Set();
+    knownModulesFromState(state || {}, knownModules);
+    const normalizedScope = normalizeScope(scope, knownModules);
+    const view = await buildScopedView(state || {}, normalizedScope);
+    const records = Array.from(view.records.values(), entry => deepClone(entry.meta));
+    const tombstones = Array.from(view.tombstones.values(), entry => deepClone(entry.meta));
+    const manifest = {
+      protocol: 2,
+      scope: deepClone(normalizedScope),
+      modules: deepClone(view.modules),
+      records: records,
+      tombstones: tombstones,
+      attachments: normalizedScope.includeAttachments ? deepClone(view.attachments) : []
+    };
+    if (normalizedScope.includeSettings) manifest.settings = deepClone(view.settings);
+    return manifest;
+  }
+
+  function createMergeOperation(category, identityKeyValue, identity, senderEntry, receiverEntry) {
+    return {
+      id: identityKeyValue,
+      category: category,
+      selected: category === 'add' || category === 'update' || category === 'conflictCopy',
+      identity: deepClone(identity),
+      sender: senderEntry
+        ? {
+            kind: senderEntry.kind,
+            meta: deepClone(senderEntry.meta),
+            value: deepClone(senderEntry.value)
+          }
+        : null,
+      receiver: receiverEntry
+        ? {
+            kind: receiverEntry.kind,
+            meta: deepClone(receiverEntry.meta),
+            value: deepClone(receiverEntry.value)
+          }
+        : null
+    };
+  }
+
+  async function buildMergePlan(senderState, receiverState, scope) {
+    const knownModules = new Set();
+    knownModulesFromState(senderState || {}, knownModules);
+    knownModulesFromState(receiverState || {}, knownModules);
+    const normalizedScope = normalizeScope(scope, knownModules);
+    const senderView = await buildScopedView(senderState || {}, normalizedScope);
+    const receiverView = await buildScopedView(receiverState || {}, normalizedScope);
+    const operations = [];
+    const summary = emptySummary();
+    const allKeys = new Set();
+    for (const key of senderView.records.keys()) allKeys.add(key);
+    for (const key of receiverView.records.keys()) allKeys.add(key);
+    for (const key of senderView.tombstones.keys()) allKeys.add(key);
+    for (const key of receiverView.tombstones.keys()) allKeys.add(key);
+
+    for (const key of Array.from(allKeys).sort()) {
+      const senderRecord = senderView.records.get(key) || null;
+      const receiverRecord = receiverView.records.get(key) || null;
+      const senderTombstone = senderView.tombstones.get(key) || null;
+      const receiverTombstone = receiverView.tombstones.get(key) || null;
+      const identity = buildIdentity(
+        senderRecord ? senderRecord.identity : receiverRecord ? receiverRecord.identity : senderTombstone ? senderTombstone.identity : receiverTombstone.identity
+      );
+      let category = null;
+      let senderEntry = senderRecord || senderTombstone;
+      let receiverEntry = receiverRecord || receiverTombstone;
+
+      if (senderRecord && receiverRecord) {
+        if (senderRecord.meta.contentHash === receiverRecord.meta.contentHash) {
+          category = 'same';
+        } else {
+          const relation = compareVectors(senderRecord.meta.vector, receiverRecord.meta.vector);
+          if (relation === 'newer') category = 'update';
+          else if (relation === 'older') category = 'keep';
+          else category = 'conflictCopy';
+        }
+      } else if (senderRecord && !receiverRecord && !receiverTombstone) {
+        category = 'add';
+      } else if (!senderRecord && !senderTombstone && receiverRecord) {
+        category = 'keep';
+      } else if (senderTombstone && receiverRecord) {
+        const relation = compareVectors(senderTombstone.meta.vector, receiverRecord.meta.vector);
+        category = relation === 'newer' ? 'pendingDelete' : 'deleteConflict';
+      } else if (senderRecord && receiverTombstone) {
+        const relation = compareVectors(senderRecord.meta.vector, receiverTombstone.meta.vector);
+        if (relation === 'newer') category = 'add';
+        else if (relation === 'concurrent') category = 'deleteConflict';
+        else category = 'same';
+      } else if (senderTombstone && receiverTombstone) {
+        category = 'same';
+      } else if (senderTombstone && !receiverRecord) {
+        category = 'same';
+        receiverEntry = receiverTombstone;
+      } else if (receiverTombstone && !senderRecord) {
+        category = 'same';
+        senderEntry = senderTombstone;
+      }
+
+      if (!category) continue;
+      summary[category] += 1;
+      operations.push(createMergeOperation(category, key, identity, senderEntry, receiverEntry));
+    }
+
+    return {
+      operations: operations,
+      summary: summary,
+      scope: deepClone(normalizedScope)
+    };
+  }
+
+  function ensureRootSync(state) {
+    if (!isObject(state._sync)) state._sync = {};
+    if (!Array.isArray(state._sync.tombstones)) state._sync.tombstones = [];
+    return state._sync.tombstones;
+  }
+
+  function resolveCollection(rootState, pathSegments, parentId, createIfMissing) {
+    let current = rootState;
+    for (let index = 0; index < pathSegments.length; index += 1) {
+      if (Array.isArray(current)) {
+        const parent = current.find(item => isObject(item) && item.id != null && String(item.id) === String(parentId));
+        if (!parent) return null;
+        current = parent;
+      }
+      if (!isObject(current)) return null;
+      const segment = pathSegments[index];
+      if (!hasOwn(current, segment) || current[segment] == null) {
+        if (!createIfMissing) return null;
+        defineOwn(current, segment, index === pathSegments.length - 1 ? [] : {});
+      }
+      current = current[segment];
+    }
+    return Array.isArray(current) ? current : null;
+  }
+
+  function removeTombstoneByKey(tombstones, key) {
+    const index = tombstones.findIndex(item => tombstoneKey(normalizeTombstone(item)) === key);
+    if (index >= 0) tombstones.splice(index, 1);
+  }
+
+  function upsertRecordAtIdentity(state, identity, record) {
+    const collection = resolveCollection(state, identity.pathSegments, identity.parentId, true);
+    if (!collection) throw new Error('Unable to resolve collection path');
+    const index = collection.findIndex(item => isObject(item) && item.id != null && String(item.id) === String(identity.id));
+    if (index >= 0) collection[index] = deepClone(record);
+    else collection.push(deepClone(record));
+    return collection;
+  }
+
+  function removeRecordAtIdentity(state, identity) {
+    const collection = resolveCollection(state, identity.pathSegments, identity.parentId, false);
+    if (!collection) return false;
+    const index = collection.findIndex(item => isObject(item) && item.id != null && String(item.id) === String(identity.id));
+    if (index < 0) return false;
+    collection.splice(index, 1);
+    return true;
+  }
+
+  function normalizeSelectedOperationIds(selectedOperationIds) {
+    if (selectedOperationIds == null) return null;
+    if (selectedOperationIds instanceof Set) return new Set(Array.from(selectedOperationIds, value => String(value)));
+    if (Array.isArray(selectedOperationIds)) return new Set(selectedOperationIds.map(value => String(value)));
+    throw new TypeError('selectedOperationIds must be a Set or an array');
+  }
+
+  function defaultIdFactory(originalId) {
+    if (root.crypto && typeof root.crypto.randomUUID === 'function') {
+      return root.crypto.randomUUID();
+    }
+    if (nodeCrypto && nodeCrypto.randomBytes) {
+      return String(originalId) + '-copy-' + nodeCrypto.randomBytes(6).toString('hex');
+    }
+    return String(originalId) + '-copy-' + Math.random().toString(16).slice(2);
+  }
+
+  function createCollisionFreeId(collection, originalId, idFactory) {
+    const existingIds = new Set(
+      collection
+        .filter(item => isObject(item) && item.id != null)
+        .map(item => String(item.id))
+    );
+    const factory = typeof idFactory === 'function' ? idFactory : defaultIdFactory;
+    for (let attempt = 0; attempt < 1024; attempt += 1) {
+      const raw = factory(originalId, attempt);
+      const candidate = raw == null || raw === '' ? defaultIdFactory(originalId, attempt) : String(raw);
+      if (!existingIds.has(candidate)) return candidate;
+    }
+    throw new Error('Unable to generate collision-free id');
+  }
+
+  async function applyMergePlan(plan, receiverState, options) {
+    if (!isObject(plan) || !Array.isArray(plan.operations)) {
+      throw new TypeError('plan must contain an operations array');
+    }
+    const nextState = deepClone(receiverState || {});
+    const tombstones = ensureRootSync(nextState);
+    const selectedIds = normalizeSelectedOperationIds(options && options.selectedOperationIds);
+    const idFactory = options && options.idFactory;
+
+    for (const operation of plan.operations) {
+      const applyOperation = selectedIds ? selectedIds.has(String(operation.id)) : operation.selected === true;
+      if (!applyOperation) continue;
+      const key = entityKey(operation.identity.pathSegments, operation.identity.parentId, operation.identity.id);
+
+      if (operation.category === 'add' || operation.category === 'update') {
+        upsertRecordAtIdentity(nextState, operation.identity, operation.sender.value);
+        removeTombstoneByKey(tombstones, key);
+        continue;
+      }
+
+      if (operation.category === 'conflictCopy') {
+        const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, true);
+        if (!collection) throw new Error('Unable to resolve collection path');
+        const conflictCopy = deepClone(operation.sender.value);
+        conflictCopy.id = createCollisionFreeId(collection, operation.identity.id, idFactory);
+        if (!isObject(conflictCopy._sync)) conflictCopy._sync = {};
+        conflictCopy._sync.vector = mergeVectors(conflictCopy._sync.vector);
+        conflictCopy._sync.deleted = false;
+        conflictCopy._sync.conflictOf = operation.identity.id;
+        conflictCopy._sync.contentHash = await hashRecord(conflictCopy);
+        collection.push(conflictCopy);
+        removeTombstoneByKey(tombstones, key);
+        continue;
+      }
+
+      if (operation.category === 'pendingDelete') {
+        removeRecordAtIdentity(nextState, operation.identity);
+        const tombstoneMap = new Map(
+          tombstones.map(item => [tombstoneKey(normalizeTombstone(item)), normalizeTombstone(item)])
+        );
+        upsertTombstone(tombstoneMap, operation.sender.value);
+        tombstones.splice(
+          0,
+          tombstones.length,
+          ...Array.from(tombstoneMap.values()).sort((left, right) => tombstoneKey(left).localeCompare(tombstoneKey(right)))
+        );
+        continue;
+      }
+
+      if (operation.category === 'same') {
+        const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, false);
+        if (!collection) continue;
+        const record = collection.find(item => isObject(item) && item.id != null && String(item.id) === String(operation.identity.id));
+        if (!record) continue;
+        if (!isObject(record._sync)) record._sync = {};
+        record._sync.vector = mergeVectors(
+          record._sync.vector,
+          operation.receiver && operation.receiver.meta ? operation.receiver.meta.vector : null,
+          operation.sender && operation.sender.meta ? operation.sender.meta.vector : null
+        );
+        record._sync.deleted = false;
+        if (!hasOwn(record._sync, 'conflictOf')) record._sync.conflictOf = null;
+        if (record._sync.contentHash == null) record._sync.contentHash = await hashRecord(record);
+      }
+    }
+
+    return nextState;
+  }
+
+  function assertSafeEnvelopeGraph(value, label) {
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        assertSafeEnvelopeGraph(value[index], label + '[' + index + ']');
+      }
+      return;
+    }
+    if (value == null || typeof value !== 'object') return;
+    if (!isPlainObject(value)) throw new Error(label + ' must contain only plain objects');
+    for (const key of Object.keys(value)) {
+      if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+        throw new Error('Prototype key not allowed: ' + key);
+      }
+      assertSafeEnvelopeGraph(value[key], label + '.' + key);
+    }
+  }
+
+  function assertModuleIdsAllowed(moduleIds, allowedModules, label) {
+    for (const moduleId of moduleIds) {
+      if (typeof moduleId !== 'string' || moduleId === '') throw new Error(label + ' contains an invalid module id');
+      if (!allowedModules.has(moduleId)) throw new Error(label + ' contains an unknown module id');
+    }
+  }
+
+  function requireFiniteNonNegativeNumber(value, label) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) throw new Error(label + ' must be a finite non-negative number');
+    return number;
+  }
+
+  function validateManifestPayload(manifest, limits) {
+    if (!isPlainObject(manifest)) throw new Error('manifest must be a plain object');
+    if (manifest.protocol !== 2) throw new Error('manifest must use protocol 2');
+    if (!isPlainObject(manifest.scope)) throw new Error('manifest.scope must be a plain object');
+    const allowedModules = limits && limits.allowedModules instanceof Set
+      ? limits.allowedModules
+      : new Set(Array.isArray(limits && limits.allowedModules) ? limits.allowedModules : []);
+    const scopeModules = Array.isArray(manifest.scope.modules) ? manifest.scope.modules : [];
+    assertModuleIdsAllowed(scopeModules, allowedModules, 'manifest.scope.modules');
+    const moduleSummaries = Array.isArray(manifest.modules) ? manifest.modules : [];
+    assertModuleIdsAllowed(
+      moduleSummaries.map(item => item && item.id),
+      allowedModules,
+      'manifest.modules'
+    );
+    const manifestBytes = serializedSize(manifest);
+    if (manifestBytes > requireFiniteNonNegativeNumber(limits.maxManifestBytes, 'max manifest bytes')) {
+      throw new Error('manifest bytes exceed limit');
+    }
+    const attachments = Array.isArray(manifest.attachments) ? manifest.attachments : [];
+    if (attachments.length > requireFiniteNonNegativeNumber(limits.maxAttachmentCount, 'max attachment count')) {
+      throw new Error('attachment count exceeds limit');
+    }
+    let attachmentBytes = 0;
+    for (const attachment of attachments) {
+      if (!isPlainObject(attachment)) throw new Error('attachments must contain plain objects');
+      attachmentBytes += requireFiniteNonNegativeNumber(attachment.size, 'attachment size');
+      if (attachment.moduleId != null) assertModuleIdsAllowed([attachment.moduleId], allowedModules, 'attachments');
+    }
+    if (attachmentBytes > requireFiniteNonNegativeNumber(limits.maxAttachmentBytes, 'max attachment bytes')) {
+      throw new Error('attachment bytes exceed limit');
+    }
+    const records = Array.isArray(manifest.records) ? manifest.records : [];
+    const tombstones = Array.isArray(manifest.tombstones) ? manifest.tombstones : [];
+    for (const record of records.concat(tombstones)) {
+      if (!isPlainObject(record)) throw new Error('manifest entries must be plain objects');
+      if (record.moduleId != null) assertModuleIdsAllowed([record.moduleId], allowedModules, 'manifest entries');
+      requireFiniteNonNegativeNumber(record.size, 'record size');
+    }
+  }
+
+  function validateChunkPayload(envelope, limits) {
+    const chunk = envelope.chunk;
+    if (!isPlainObject(chunk)) throw new Error('chunk must be a plain object');
+    const index = requireFiniteNonNegativeNumber(chunk.index, 'chunk index');
+    const total = requireFiniteNonNegativeNumber(chunk.total, 'chunk total');
+    if (!Number.isInteger(index)) throw new Error('chunk index must be an integer');
+    if (!Number.isInteger(total) || total <= 0) throw new Error('chunk total must be a positive integer');
+    if (index >= total) throw new Error('chunk index must be smaller than chunk total');
+    const payload = chunk.payload;
+    if (typeof payload !== 'string') throw new Error('chunk payload must be a string');
+    if (byteLengthOfText(payload) > requireFiniteNonNegativeNumber(limits.maxChunkBytes, 'max chunk bytes')) {
+      throw new Error('chunk payload exceeds limit');
+    }
+    const seenChunkIndexes = limits && limits.seenChunkIndexes instanceof Set ? limits.seenChunkIndexes : new Set();
+    if (seenChunkIndexes.has(index)) throw new Error('duplicate chunk index');
+  }
+
+  function validateEnvelope(envelope, limits) {
+    if (!isPlainObject(envelope)) throw new Error('envelope must be a plain object');
+    assertSafeEnvelopeGraph(envelope, 'envelope');
+    if (envelope.protocol !== 2) throw new Error('envelope must use protocol 2');
+    if (!KNOWN_ENVELOPE_TYPES.has(envelope.type)) throw new Error('unknown type: ' + envelope.type);
+    if (!isObject(limits)) throw new TypeError('limits must be a plain object');
+
+    if (envelope.type === 'manifest') validateManifestPayload(envelope.manifest, limits);
+    if (envelope.type === 'data-chunk') validateChunkPayload(envelope, limits);
+    return true;
+  }
+
+  async function hashBlob(value) {
+    let bytes = null;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(value)) {
+      bytes = value;
+    } else if (typeof Blob !== 'undefined' && value instanceof Blob) {
+      bytes = new Uint8Array(await value.arrayBuffer());
+    } else if (isArrayBufferLike(value)) {
+      bytes = new Uint8Array(value);
+    } else if (
+      (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) ||
+      isArrayBufferViewLike(value)
+    ) {
+      bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    if (!bytes) throw new TypeError('Unsupported blob value');
+    return digestBytes(bytes);
+  }
+
   return {
     compareVectors: compareVectors,
     migrateState: migrateState,
     hashRecord: hashRecord,
-    stampChanges: stampChanges
+    stampChanges: stampChanges,
+    buildManifest: buildManifest,
+    buildMergePlan: buildMergePlan,
+    applyMergePlan: applyMergePlan,
+    validateEnvelope: validateEnvelope,
+    hashBlob: hashBlob
   };
 });

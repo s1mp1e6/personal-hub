@@ -50,16 +50,96 @@ function visible(value) {
   return JSON.parse(JSON.stringify(value, (key, item) => (key === '_sync' ? undefined : item)));
 }
 
-test('exports only the Task 2 sync-core API', () => {
+function makeTombstone({ id, pathSegments, parentId = null, moduleId, vector }) {
+  return {
+    id,
+    path: pathSegments.join('.'),
+    pathSegments: clone(pathSegments),
+    moduleId:
+      moduleId !== undefined
+        ? moduleId
+        : pathSegments[0] === 'modules' && pathSegments[1]
+          ? pathSegments[1]
+          : null,
+    parentId,
+    _sync: {
+      vector: clone(vector || {}),
+      deleted: true,
+      conflictOf: null
+    }
+  };
+}
+
+function buildMergeFixture() {
+  return {
+    sender: {
+      modules: {
+        todos: {
+          items: [
+            { id: 'same-1', txt: 'same text', _sync: { vector: { deviceA: 2 } } },
+            { id: 'add-1', txt: 'sender only', _sync: { vector: { deviceA: 1 } } },
+            { id: 'update-1', txt: 'sender newer', _sync: { vector: { deviceA: 2 } } },
+            { id: 'conflict-1', txt: 'sender copy', _sync: { vector: { deviceA: 1 } } }
+          ]
+        }
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({
+            id: 'pending-delete-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: { deviceA: 2 }
+          }),
+          makeTombstone({
+            id: 'delete-conflict-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: { deviceA: 2 }
+          })
+        ]
+      }
+    },
+    receiver: {
+      modules: {
+        todos: {
+          items: [
+            { id: 'same-1', txt: 'same text', _sync: { vector: { deviceB: 1 } } },
+            { id: 'update-1', txt: 'receiver older', _sync: { vector: { deviceA: 1 } } },
+            { id: 'keep-1', txt: 'receiver only', _sync: { vector: { deviceB: 1 } } },
+            { id: 'conflict-1', txt: 'receiver version', _sync: { vector: { deviceB: 1 } } },
+            { id: 'pending-delete-1', txt: 'remove me only if chosen', _sync: { vector: { deviceA: 1 } } },
+            {
+              id: 'delete-conflict-1',
+              txt: 'receiver modified',
+              _sync: { vector: { deviceA: 1, deviceB: 1 } }
+            }
+          ]
+        }
+      },
+      _sync: { tombstones: [] }
+    },
+    scope: {
+      modules: ['todos'],
+      includeAttachments: false,
+      includeSettings: false
+    }
+  };
+}
+
+test('exports only the Task 3 sync-core API', () => {
   assert.deepEqual(Object.keys(SyncCore).sort(), [
+    'applyMergePlan',
+    'buildManifest',
+    'buildMergePlan',
     'compareVectors',
+    'hashBlob',
     'hashRecord',
     'migrateState',
-    'stampChanges'
+    'stampChanges',
+    'validateEnvelope'
   ]);
 });
 
-test('exposes the same four-function API in a browser UMD context', async () => {
+test('exposes the same nine-function API in a browser UMD context', async () => {
   const context = {
     crypto: nodeCrypto.webcrypto,
     TextEncoder,
@@ -71,12 +151,393 @@ test('exposes the same four-function API in a browser UMD context', async () => 
 
   assert.ok(context.PersonalHubSyncCore);
   assert.deepEqual(Object.keys(context.PersonalHubSyncCore).sort(), [
+    'applyMergePlan',
+    'buildManifest',
+    'buildMergePlan',
     'compareVectors',
+    'hashBlob',
     'hashRecord',
     'migrateState',
-    'stampChanges'
+    'stampChanges',
+    'validateEnvelope'
   ]);
   assert.equal(await context.PersonalHubSyncCore.hashRecord(hashFixture), expectedHashFixture);
+  assert.equal(
+    await context.PersonalHubSyncCore.hashBlob(Uint8Array.from([1, 2, 3]).buffer),
+    nodeCrypto.createHash('sha256').update(Buffer.from([1, 2, 3])).digest('hex')
+  );
+});
+
+test('buildManifest returns scoped metadata only and omits user content', async () => {
+  const state = {
+    modules: {
+      todos: {
+        items: [
+          {
+            id: 'todo-1',
+            title: 'Buy milk',
+            txt: 'very private text',
+            attachment: {
+              fileId: 'file-1',
+              name: 'scan.pdf',
+              type: 'application/pdf',
+              size: 4096,
+              kind: 'doc',
+              bytes: 'never send this'
+            }
+          }
+        ]
+      },
+      diary: {
+        items: [{ id: 'day-1', title: 'Dear diary', content: 'deep secret entry' }]
+      }
+    },
+    appearance: {
+      theme: 'dark',
+      signature: 'hidden setting text'
+    },
+    _sync: {
+      tombstones: [
+        makeTombstone({
+          id: 'todo-deleted',
+          pathSegments: ['modules', 'todos', 'items'],
+          vector: { deviceA: 2 }
+        }),
+        makeTombstone({
+          id: 'day-deleted',
+          pathSegments: ['modules', 'diary', 'items'],
+          vector: { deviceA: 2 }
+        })
+      ]
+    }
+  };
+  const before = clone(state);
+
+  const manifest = await SyncCore.buildManifest(state, {
+    modules: ['todos'],
+    includeAttachments: true,
+    includeSettings: false
+  });
+  const withSettings = await SyncCore.buildManifest(state, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: true
+  });
+
+  assert.deepEqual(state, before);
+  assert.equal(manifest.protocol, 2);
+  assert.deepEqual(manifest.scope, {
+    modules: ['todos'],
+    includeAttachments: true,
+    includeSettings: false
+  });
+  assert.deepEqual(manifest.modules.map(item => item.id), ['todos']);
+  assert.equal(manifest.records.length, 1);
+  assert.deepEqual(manifest.records[0].pathSegments, ['modules', 'todos', 'items']);
+  assert.equal(manifest.records[0].parentId, null);
+  assert.equal(manifest.records[0].moduleId, 'todos');
+  assert.equal(manifest.records[0].deleted, false);
+  assert.equal(typeof manifest.records[0].size, 'number');
+  assert.equal(manifest.records[0].size > 0, true);
+  assert.equal(manifest.records[0].attachmentCount, 1);
+  assert.equal(manifest.records[0].attachmentBytes, 4096);
+  assert.equal('title' in manifest.records[0], false);
+  assert.equal('txt' in manifest.records[0], false);
+  assert.equal('content' in manifest.records[0], false);
+  assert.equal(manifest.tombstones.length, 1);
+  assert.equal(manifest.tombstones[0].id, 'todo-deleted');
+  assert.equal(manifest.attachments.length, 1);
+  assert.equal(manifest.attachments[0].fileId, 'file-1');
+  assert.equal(manifest.attachments[0].moduleId, 'todos');
+  assert.equal(manifest.attachments[0].size, 4096);
+  assert.equal('bytes' in manifest.attachments[0], false);
+  assert.equal('settings' in manifest, false);
+  assert.ok(withSettings.settings);
+  assert.match(withSettings.settings.contentHash, /^[a-f0-9]{64}$/);
+  assert.equal(withSettings.settings.size > 0, true);
+
+  const manifestJson = JSON.stringify(manifest);
+  const settingsJson = JSON.stringify(withSettings);
+  for (const leaked of [
+    'Buy milk',
+    'very private text',
+    'Dear diary',
+    'deep secret entry',
+    'hidden setting text',
+    'never send this'
+  ]) {
+    assert.equal(manifestJson.includes(leaked), false);
+    assert.equal(settingsJson.includes(leaked), false);
+  }
+});
+
+test('buildManifest rejects unknown requested modules', async () => {
+  await assert.rejects(
+    () =>
+      SyncCore.buildManifest(
+        { modules: { todos: { items: [] } } },
+        { modules: ['missing'], includeAttachments: false, includeSettings: false }
+      ),
+    /Unknown module/
+  );
+});
+
+test('builds a safe merge plan for every record relationship', async () => {
+  const { sender, receiver, scope } = buildMergeFixture();
+  const senderBefore = clone(sender);
+  const receiverBefore = clone(receiver);
+
+  const plan = await SyncCore.buildMergePlan(sender, receiver, scope);
+
+  assert.deepEqual(sender, senderBefore);
+  assert.deepEqual(receiver, receiverBefore);
+  assert.deepEqual(plan.scope, scope);
+  assert.deepEqual(plan.summary, {
+    add: 1,
+    update: 1,
+    keep: 1,
+    conflictCopy: 1,
+    pendingDelete: 1,
+    deleteConflict: 1,
+    same: 1
+  });
+  assert.equal(plan.operations.length, 7);
+
+  for (const [category, selected] of [
+    ['add', true],
+    ['update', true],
+    ['keep', false],
+    ['conflictCopy', true],
+    ['pendingDelete', false],
+    ['deleteConflict', false],
+    ['same', false]
+  ]) {
+    const operation = plan.operations.find(item => item.category === category);
+    assert.ok(operation, category);
+    assert.equal(operation.selected, selected, category);
+  }
+});
+
+test('merge planning keeps same ids distinct across separate paths', async () => {
+  const sender = {
+    modules: {
+      todos: {
+        items: [{ id: 'repeat-1', txt: 'todo branch' }]
+      },
+      experiments: {
+        items: [{ id: 'exp-1', name: 'Experiment', logs: [{ id: 'repeat-1', note: 'log branch' }] }]
+      }
+    }
+  };
+  const receiver = { modules: { todos: { items: [] }, experiments: { items: [] } } };
+
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos', 'experiments'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const identities = plan.operations
+    .filter(item => item.category === 'add' && item.identity.id === 'repeat-1')
+    .map(item => JSON.stringify([item.identity.pathSegments, item.identity.parentId]))
+    .sort();
+
+  assert.deepEqual(plan.summary, {
+    add: 3,
+    update: 0,
+    keep: 0,
+    conflictCopy: 0,
+    pendingDelete: 0,
+    deleteConflict: 0,
+    same: 0
+  });
+  assert.deepEqual(identities, [
+    JSON.stringify([['modules', 'experiments', 'items', 'logs'], 'exp-1']),
+    JSON.stringify([['modules', 'todos', 'items'], null])
+  ]);
+});
+
+test('applyMergePlan preserves receiver values, copies conflicts, and leaves deletions off by default', async () => {
+  const { sender, receiver, scope } = buildMergeFixture();
+  const plan = await SyncCore.buildMergePlan(sender, receiver, scope);
+  const receiverBefore = clone(receiver);
+  const planBefore = clone(plan);
+
+  const applied = await SyncCore.applyMergePlan(plan, receiver, {
+    idFactory() {
+      return 'conflict-copy-1';
+    }
+  });
+
+  assert.deepEqual(receiver, receiverBefore);
+  assert.deepEqual(plan, planBefore);
+  assert.equal(applied.modules.todos.items.some(item => item.id === 'add-1'), true);
+  assert.equal(applied.modules.todos.items.find(item => item.id === 'update-1').txt, 'sender newer');
+  assert.equal(applied.modules.todos.items.find(item => item.id === 'conflict-1').txt, 'receiver version');
+  assert.equal(applied.modules.todos.items.find(item => item.id === 'conflict-copy-1').txt, 'sender copy');
+  assert.equal(
+    applied.modules.todos.items.find(item => item.id === 'conflict-copy-1')._sync.conflictOf,
+    'conflict-1'
+  );
+  assert.equal(applied.modules.todos.items.some(item => item.id === 'pending-delete-1'), true);
+  assert.equal(
+    applied.modules.todos.items.find(item => item.id === 'delete-conflict-1').txt,
+    'receiver modified'
+  );
+});
+
+test('applyMergePlan supports explicit selection for same-vector merges and pending deletes', async () => {
+  const { sender, receiver, scope } = buildMergeFixture();
+  const plan = await SyncCore.buildMergePlan(sender, receiver, scope);
+  const selectedOperationIds = new Set(
+    plan.operations
+      .filter(item => item.selected || item.category === 'same' || item.category === 'pendingDelete')
+      .map(item => item.id)
+  );
+
+  const applied = await SyncCore.applyMergePlan(plan, receiver, {
+    selectedOperationIds,
+    idFactory() {
+      return 'conflict-copy-2';
+    }
+  });
+  const sameRecord = applied.modules.todos.items.find(item => item.id === 'same-1');
+  const pendingDeleteRecord = applied.modules.todos.items.find(item => item.id === 'pending-delete-1');
+
+  assert.deepEqual(visible(sameRecord), visible(receiver.modules.todos.items.find(item => item.id === 'same-1')));
+  assert.deepEqual(sameRecord._sync.vector, { deviceA: 2, deviceB: 1 });
+  assert.ok(!pendingDeleteRecord || pendingDeleteRecord._sync.deleted === true);
+});
+
+test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [
+            {
+              id: 'todo-1',
+              txt: 'manifest source',
+              attachment: {
+                fileId: 'file-1',
+                name: 'scan.pdf',
+                type: 'application/pdf',
+                size: 64,
+                kind: 'doc'
+              }
+            }
+          ]
+        }
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: false }
+  );
+  const validEnvelope = {
+    protocol: 2,
+    type: 'manifest',
+    manifest
+  };
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const before = clone(validEnvelope);
+
+  assert.equal(SyncCore.validateEnvelope(validEnvelope, limits), true);
+  assert.deepEqual(validEnvelope, before);
+
+  const duplicateEnvelope = {
+    protocol: 2,
+    type: 'data-chunk',
+    chunk: {
+      index: 1,
+      total: 3,
+      payload: 'abc'
+    }
+  };
+
+  for (const [name, envelope, expectedPattern, nextLimits] of [
+    [
+      'protocol',
+      { ...validEnvelope, protocol: 1 },
+      /protocol 2/i,
+      limits
+    ],
+    [
+      'type',
+      { ...validEnvelope, type: 'mystery' },
+      /unknown type/i,
+      limits
+    ],
+    [
+      'module',
+      {
+        ...validEnvelope,
+        manifest: { ...manifest, scope: { ...manifest.scope, modules: ['unknown'] } }
+      },
+      /module/i,
+      limits
+    ],
+    [
+      'size',
+      {
+        ...validEnvelope,
+        manifest: {
+          ...manifest,
+          attachments: manifest.attachments.map(item => ({ ...item, size: -1 }))
+        }
+      },
+      /size/i,
+      limits
+    ],
+    [
+      'manifest bytes',
+      validEnvelope,
+      /manifest bytes/i,
+      { ...limits, maxManifestBytes: 10 }
+    ],
+    [
+      'chunk index',
+      {
+        protocol: 2,
+        type: 'data-chunk',
+        chunk: { index: -1, total: 2, payload: 'abc' }
+      },
+      /chunk index/i,
+      limits
+    ],
+    [
+      'duplicate chunk',
+      duplicateEnvelope,
+      /duplicate chunk/i,
+      { ...limits, seenChunkIndexes: new Set([1]) }
+    ],
+    [
+      'prototype key',
+      JSON.parse(
+        '{"protocol":2,"type":"manifest","manifest":{"protocol":2,"scope":{"modules":["todos"],"includeAttachments":true,"includeSettings":false},"modules":[{"id":"todos"}],"records":[{"id":"todo-1","pathSegments":["modules","todos","items"],"parentId":null,"moduleId":"todos","vector":{},"contentHash":"abc","deleted":false,"size":1,"__proto__":{"polluted":true}}],"tombstones":[],"attachments":[]}}'
+      ),
+      /prototype/i,
+      limits
+    ]
+  ]) {
+    assert.throws(() => SyncCore.validateEnvelope(envelope, nextLimits), expectedPattern, name);
+  }
+});
+
+test('hashBlob hashes Buffer, ArrayBuffer, and Blob when available', async () => {
+  const bytes = Buffer.from('hello world', 'utf8');
+  const expected = nodeCrypto.createHash('sha256').update(bytes).digest('hex');
+
+  assert.equal(await SyncCore.hashBlob(bytes), expected);
+  assert.equal(await SyncCore.hashBlob(Uint8Array.from(bytes).buffer), expected);
+  if (typeof Blob !== 'undefined') {
+    assert.equal(await SyncCore.hashBlob(new Blob([bytes])), expected);
+  }
+  await assert.rejects(() => SyncCore.hashBlob('hello world'), /Unsupported/i);
 });
 
 test('compares dominating and concurrent vectors', () => {
