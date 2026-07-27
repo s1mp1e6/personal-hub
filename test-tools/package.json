@@ -1,0 +1,22 @@
+{
+  "name": "test-tools",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "scan": "node scan-static.js",
+    "verify": "node verify-responsive.js",
+    "audit": "node audit-interactions.js",
+    "verify:sync": "node verify-sync.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "lz-string": "^1.5.0",
+    "playwright": "^1.62.0",
+    "qrcode-generator": "^2.0.4"
+  }
+}

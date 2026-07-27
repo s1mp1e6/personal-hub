@@ -1,0 +1,10 @@
+{
+  "name": "我的工作台",
+  "short_name": "工作台",
+  "description": "本地优先的个人工作台",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f3ef",
+  "theme_color": "#2383e2",
+  "lang": "zh-CN"
+}
