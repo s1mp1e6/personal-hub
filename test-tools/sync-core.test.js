@@ -606,6 +606,94 @@ test('merge scope without attachments preserves every receiver ref in attachment
   assert.equal(JSON.stringify(applied).includes('sender-file'), false);
 });
 
+test('merge scope without attachments preserves nested receiver attachment subtrees only', async () => {
+  const cover = { fileId: 'cover-file', name: 'cover.jpg', type: 'image/jpeg', size: 11, kind: 'image' };
+  const galleryFile = { fileId: 'gallery-file', name: 'gallery.jpg', type: 'image/jpeg', size: 12, kind: 'image' };
+  const sharedPreview = { fileId: 'preview-file', name: 'preview.jpg', type: 'image/jpeg', size: 13, kind: 'image' };
+  const receiverOnlyFile = { fileId: 'receiver-only-file', name: 'only.pdf', type: 'application/pdf', size: 14, kind: 'doc' };
+  const poster = { fileId: 'poster-file', name: 'poster.jpg', type: 'image/jpeg', size: 15, kind: 'image' };
+  const sender = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-1',
+          txt: 'sender text',
+          poster: { crop: 'sender replacement' },
+          blocks: [
+            { id: 'shared-block', text: 'sender block', tags: ['new'] },
+            { id: 'sender-block', text: 'sender only' }
+          ],
+          _sync: { vector: { sender: 2 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiver = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-1',
+          txt: 'receiver text',
+          poster,
+          media: {
+            cover,
+            caption: 'remove receiver caption',
+            ordinary: { note: 'remove receiver media data' },
+            galleries: [
+              { id: 'gallery-with-file', source: galleryFile, note: 'remove gallery note' },
+              { id: 'gallery-plain', note: 'remove plain gallery item' }
+            ]
+          },
+          receiverOnlyPlain: { note: 'remove plain receiver subtree' },
+          blocks: [
+            {
+              id: 'shared-block',
+              text: 'receiver block',
+              assets: { preview: sharedPreview, note: 'remove asset note' },
+              obsolete: 'remove shared receiver field'
+            },
+            { id: 'receiver-file-block', attachment: receiverOnlyFile, note: 'remove block note' },
+            { id: 'receiver-plain-block', note: 'remove receiver-only plain block' }
+          ],
+          _sync: { vector: { sender: 1 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const senderBefore = clone(sender);
+  const receiverBefore = clone(receiver);
+
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const applied = await SyncCore.applyMergePlan(plan, receiver);
+  const updated = applied.modules.todos.items[0];
+
+  assert.deepEqual(updated.media, {
+    cover,
+    galleries: [{ id: 'gallery-with-file', source: galleryFile }]
+  });
+  assert.deepEqual(updated.poster, poster);
+  assert.deepEqual(visible(updated.blocks), [
+    {
+      id: 'shared-block',
+      text: 'sender block',
+      tags: ['new'],
+      assets: { preview: sharedPreview }
+    },
+    { id: 'sender-block', text: 'sender only' },
+    { id: 'receiver-file-block', attachment: receiverOnlyFile }
+  ]);
+  assert.equal('receiverOnlyPlain' in updated, false);
+  assert.equal(JSON.stringify(updated).includes('remove '), false);
+  assert.deepEqual(sender, senderBefore);
+  assert.deepEqual(receiver, receiverBefore);
+});
+
 test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
   const manifest = await SyncCore.buildManifest(
     {
@@ -1584,6 +1672,109 @@ test('validateEnvelope enforces exact metadata-only manifest shapes and scope fl
     () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: inconsistentCounts }, limits),
     /includeAttachments.*attachmentCount.*zero/i
   );
+});
+
+test('validateEnvelope requires module summaries to match scoped manifest collections exactly', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'todo text',
+            attachment: {
+              fileId: 'todo-file',
+              name: 'todo.pdf',
+              type: 'application/pdf',
+              size: 21,
+              kind: 'doc'
+            }
+          }]
+        },
+        diary: {
+          items: [{ id: 'day-1', content: 'diary text' }]
+        }
+      },
+      appearance: { theme: 'dark', density: 'compact' },
+      _sync: {
+        tombstones: [
+          makeTombstone({ id: 'todo-gone', pathSegments: ['modules', 'todos', 'items'], vector: { deviceA: 2 } }),
+          makeTombstone({ id: 'day-gone', pathSegments: ['modules', 'diary', 'items'], vector: { deviceA: 3 } })
+        ]
+      }
+    },
+    { modules: ['todos', 'diary'], includeAttachments: true, includeSettings: true }
+  );
+  const limits = {
+    allowedModules: new Set(['todos', 'diary', 'experiments']),
+    maxManifestBytes: 20000,
+    maxAttachmentCount: 8,
+    maxAttachmentBytes: 2000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const envelopeFor = nextManifest => ({ protocol: 2, type: 'manifest', manifest: nextManifest });
+  const summaryIndex = manifest.modules.findIndex(item => item.id === 'todos');
+
+  assert.equal(SyncCore.validateEnvelope(envelopeFor(manifest), limits), true);
+
+  for (const [name, nextManifest, expectedPattern] of [
+    [
+      'duplicate scope module',
+      { ...manifest, scope: { ...manifest.scope, modules: ['todos', 'diary', 'todos'] } },
+      /manifest\.scope\.modules.*duplicate/i
+    ],
+    [
+      'duplicate module summary',
+      { ...manifest, modules: [manifest.modules[0], { ...manifest.modules[1], id: manifest.modules[0].id }] },
+      /manifest\.modules.*duplicate.*todos/i
+    ],
+    [
+      'missing module summary',
+      { ...manifest, modules: manifest.modules.slice(0, 1) },
+      /manifest\.modules.*missing.*diary/i
+    ],
+    [
+      'extra module summary',
+      {
+        ...manifest,
+        modules: manifest.modules.concat({
+          id: 'experiments',
+          recordCount: 0,
+          tombstoneCount: 0,
+          attachmentCount: 0,
+          attachmentBytes: 0,
+          bytes: 0
+        })
+      },
+      /manifest\.modules.*extra.*experiments/i
+    ],
+    ...['recordCount', 'tombstoneCount', 'attachmentCount', 'attachmentBytes', 'bytes'].map(field => [
+      'incorrect ' + field,
+      {
+        ...manifest,
+        modules: manifest.modules.map((summary, index) =>
+          index === summaryIndex ? { ...summary, [field]: summary[field] + 1 } : summary
+        )
+      },
+      new RegExp('manifest\\.modules.*todos.*' + field + '.*match', 'i')
+    ]),
+    [
+      'total attachment count mismatch',
+      { ...manifest, attachments: manifest.attachments.concat(clone(manifest.attachments[0])) },
+      /manifest\.modules.*todos.*attachmentCount.*match/i
+    ],
+    [
+      'total attachment bytes mismatch',
+      {
+        ...manifest,
+        attachments: manifest.attachments.map(item => ({ ...item, size: item.size + 1 }))
+      },
+      /manifest\.modules.*todos.*attachmentBytes.*match/i
+    ]
+  ]) {
+    assert.throws(() => SyncCore.validateEnvelope(envelopeFor(nextManifest), limits), expectedPattern, name);
+  }
 });
 
 test('validateEnvelope validates data chunks exactly and registers indexes transactionally', () => {

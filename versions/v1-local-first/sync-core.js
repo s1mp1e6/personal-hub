@@ -301,35 +301,80 @@
     return clone;
   }
 
-  function matchingArrayItem(items, value, index) {
-    if (!Array.isArray(items)) return undefined;
-    if (isObject(value) && value.id != null) {
-      return items.find(item => isObject(item) && item.id != null && String(item.id) === String(value.id));
+  function attachmentSubtree(value) {
+    if (Array.isArray(value)) {
+      const items = [];
+      for (const item of value) {
+        const next = attachmentSubtree(item);
+        if (next !== OMIT) items.push(next);
+      }
+      return items.length ? items : OMIT;
     }
-    return items[index];
+    if (!isObject(value)) return OMIT;
+    if (isFileReference(value)) return deepClone(value);
+
+    const subtree = {};
+    let found = false;
+    for (const key of Object.keys(value)) {
+      if (key === '_sync' || key === 'id' || key === 'attType') continue;
+      const next = attachmentSubtree(value[key]);
+      if (next === OMIT) continue;
+      defineOwn(subtree, key, next);
+      found = true;
+    }
+    if (!found) return OMIT;
+    if (value.id != null) defineOwn(subtree, 'id', deepClone(value.id));
+    if (isFileReference(value.attachment) && hasOwn(value, 'attType')) {
+      defineOwn(subtree, 'attType', deepClone(value.attType));
+    }
+    return subtree;
+  }
+
+  function matchingArrayIndex(items, value, index) {
+    if (!Array.isArray(items)) return -1;
+    if (isObject(value) && value.id != null) {
+      return items.findIndex(item => isObject(item) && item.id != null && String(item.id) === String(value.id));
+    }
+    return index < items.length ? index : -1;
+  }
+
+  function canMergeAttachmentContainers(senderValue, receiverValue) {
+    if (isFileReference(senderValue) || isFileReference(receiverValue)) {
+      return isFileReference(senderValue) && isFileReference(receiverValue);
+    }
+    if (Array.isArray(senderValue) || Array.isArray(receiverValue)) {
+      return Array.isArray(senderValue) && Array.isArray(receiverValue);
+    }
+    return isObject(senderValue) && isObject(receiverValue);
   }
 
   function mergeWithoutAttachmentReferences(senderValue, receiverValue) {
+    if (!canMergeAttachmentContainers(senderValue, receiverValue)) {
+      const preserved = attachmentSubtree(receiverValue);
+      if (preserved !== OMIT) return preserved;
+    }
     if (isFileReference(senderValue)) {
       return isFileReference(receiverValue) ? deepClone(receiverValue) : OMIT;
     }
     if (Array.isArray(senderValue)) {
       const merged = [];
+      const handledReceiverIndexes = new Set();
       for (let index = 0; index < senderValue.length; index += 1) {
+        const receiverIndex = matchingArrayIndex(receiverValue, senderValue[index], index);
+        const receiverItem = receiverIndex >= 0 ? receiverValue[receiverIndex] : undefined;
+        const canMerge = canMergeAttachmentContainers(senderValue[index], receiverItem);
         const next = mergeWithoutAttachmentReferences(
           senderValue[index],
-          matchingArrayItem(receiverValue, senderValue[index], index)
+          canMerge ? receiverItem : undefined
         );
         if (next !== OMIT) merged.push(next);
+        if (canMerge) handledReceiverIndexes.add(receiverIndex);
       }
       if (Array.isArray(receiverValue)) {
-        const retainedFileIds = new Set(
-          merged.filter(isFileReference).map(item => item.fileId)
-        );
-        for (const item of receiverValue) {
-          if (!isFileReference(item) || retainedFileIds.has(item.fileId)) continue;
-          merged.push(deepClone(item));
-          retainedFileIds.add(item.fileId);
+        for (let index = 0; index < receiverValue.length; index += 1) {
+          if (handledReceiverIndexes.has(index)) continue;
+          const preserved = attachmentSubtree(receiverValue[index]);
+          if (preserved !== OMIT) merged.push(preserved);
         }
       }
       return merged;
@@ -348,7 +393,9 @@
     }
     if (receiverObject) {
       for (const key of Object.keys(receiverObject)) {
-        if (isFileReference(receiverObject[key])) defineOwn(merged, key, deepClone(receiverObject[key]));
+        if (hasOwn(senderValue, key)) continue;
+        const preserved = attachmentSubtree(receiverObject[key]);
+        if (preserved !== OMIT) defineOwn(merged, key, preserved);
       }
       if (isFileReference(receiverObject.attachment) && hasOwn(receiverObject, 'attType')) {
         defineOwn(merged, 'attType', deepClone(receiverObject.attType));
@@ -1129,10 +1176,26 @@
       : new Set(Array.isArray(limits && limits.allowedModules) ? limits.allowedModules : []);
     validateScopePayload(manifest.scope, allowedModules, 'manifest.scope');
     const scopeModules = manifest.scope.modules;
-    const scopeModuleSet = new Set(scopeModules);
+    const scopeModuleSet = new Set();
+    for (const moduleId of scopeModules) {
+      if (scopeModuleSet.has(moduleId)) throw new Error('manifest.scope.modules contains duplicate module id: ' + moduleId);
+      scopeModuleSet.add(moduleId);
+    }
     const moduleSummaries = requireArrayField(manifest, 'modules', 'manifest.modules');
+    const moduleSummaryMap = new Map();
     for (let index = 0; index < moduleSummaries.length; index += 1) {
-      validateManifestModuleSummary(moduleSummaries[index], index, scopeModuleSet, allowedModules);
+      const summary = moduleSummaries[index];
+      if (isPlainObject(summary) && typeof summary.id === 'string' && !scopeModuleSet.has(summary.id)) {
+        throw new Error('manifest.modules contains extra module id: ' + summary.id);
+      }
+      validateManifestModuleSummary(summary, index, scopeModuleSet, allowedModules);
+      if (moduleSummaryMap.has(summary.id)) {
+        throw new Error('manifest.modules contains duplicate module id: ' + summary.id);
+      }
+      moduleSummaryMap.set(summary.id, summary);
+    }
+    for (const moduleId of scopeModules) {
+      if (!moduleSummaryMap.has(moduleId)) throw new Error('manifest.modules is missing module id: ' + moduleId);
     }
     const manifestBytes = serializedSize(manifest);
     if (manifestBytes > requireFiniteNonNegativeNumber(limits.maxManifestBytes, 'max manifest bytes')) {
@@ -1173,6 +1236,46 @@
           throw new Error('manifest.scope.includeAttachments false requires record attachmentCount and attachmentBytes to be zero');
         }
       }
+    }
+    const actualSummaries = new Map(
+      scopeModules.map(moduleId => [moduleId, {
+        recordCount: 0,
+        tombstoneCount: 0,
+        attachmentCount: 0,
+        attachmentBytes: 0,
+        bytes: 0
+      }])
+    );
+    for (const record of records) {
+      const actual = actualSummaries.get(record.moduleId);
+      actual.recordCount += 1;
+      actual.bytes += record.size;
+    }
+    for (const tombstone of tombstones) {
+      actualSummaries.get(tombstone.moduleId).tombstoneCount += 1;
+    }
+    for (const attachment of attachments) {
+      const actual = actualSummaries.get(attachment.moduleId);
+      actual.attachmentCount += 1;
+      actual.attachmentBytes += attachment.size;
+    }
+    const summaryFields = ['recordCount', 'tombstoneCount', 'attachmentCount', 'attachmentBytes', 'bytes'];
+    for (const moduleId of scopeModules) {
+      const summary = moduleSummaryMap.get(moduleId);
+      const actual = actualSummaries.get(moduleId);
+      for (const field of summaryFields) {
+        if (summary[field] !== actual[field]) {
+          throw new Error('manifest.modules summary for ' + moduleId + '.' + field + ' does not match manifest collections');
+        }
+      }
+    }
+    const totalAttachmentCount = moduleSummaries.reduce((sum, summary) => sum + summary.attachmentCount, 0);
+    const totalAttachmentBytes = moduleSummaries.reduce((sum, summary) => sum + summary.attachmentBytes, 0);
+    if (totalAttachmentCount !== attachments.length) {
+      throw new Error('manifest.modules total attachmentCount does not match manifest.attachments');
+    }
+    if (totalAttachmentBytes !== attachmentBytes) {
+      throw new Error('manifest.modules total attachmentBytes does not match manifest.attachments');
     }
     if (manifest.scope.includeSettings) {
       if (!hasOwn(manifest, 'settings')) throw new Error('manifest.settings is required when includeSettings is true');
