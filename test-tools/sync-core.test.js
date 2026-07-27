@@ -528,6 +528,93 @@ test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', as
   }
 });
 
+test('validateEnvelope rejects malformed manifest collections with field-specific errors', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{ id: 'todo-1', txt: 'manifest source' }]
+        }
+      }
+    },
+    { modules: ['todos'], includeAttachments: false, includeSettings: false }
+  );
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+
+  for (const [name, patch, expectedPattern] of [
+    [
+      'scope.modules must be an array',
+      { scope: { ...manifest.scope, modules: 'todos' } },
+      /manifest\.scope\.modules.*array/i
+    ],
+    [
+      'modules must be an array',
+      { modules: { id: 'todos' } },
+      /manifest\.modules.*array/i
+    ],
+    [
+      'attachments must be an array',
+      { attachments: { fileId: 'file-1' } },
+      /manifest\.attachments.*array/i
+    ],
+    [
+      'records must be an array',
+      { records: { id: 'todo-1' } },
+      /manifest\.records.*array/i
+    ],
+    [
+      'tombstones must be an array',
+      { tombstones: { id: 'gone-1' } },
+      /manifest\.tombstones.*array/i
+    ],
+    [
+      'scope.modules is required',
+      { scope: { includeAttachments: false, includeSettings: false } },
+      /manifest\.scope\.modules.*required/i
+    ],
+    [
+      'modules is required',
+      { modules: undefined },
+      /manifest\.modules.*required/i
+    ],
+    [
+      'attachments is required',
+      { attachments: undefined },
+      /manifest\.attachments.*required/i
+    ],
+    [
+      'records is required',
+      { records: undefined },
+      /manifest\.records.*required/i
+    ],
+    [
+      'tombstones is required',
+      { tombstones: undefined },
+      /manifest\.tombstones.*required/i
+    ]
+  ]) {
+    const nextManifest = { ...manifest, ...patch };
+    if (patch.scope) nextManifest.scope = patch.scope;
+    if (name === 'modules is required') delete nextManifest.modules;
+    if (name === 'attachments is required') delete nextManifest.attachments;
+    if (name === 'records is required') delete nextManifest.records;
+    if (name === 'tombstones is required') delete nextManifest.tombstones;
+
+    assert.throws(
+      () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: nextManifest }, limits),
+      expectedPattern,
+      name
+    );
+  }
+});
+
 test('hashBlob hashes Buffer, ArrayBuffer, and Blob when available', async () => {
   const bytes = Buffer.from('hello world', 'utf8');
   const expected = nodeCrypto.createHash('sha256').update(bytes).digest('hex');

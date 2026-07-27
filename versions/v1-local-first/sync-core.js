@@ -864,6 +864,12 @@
     return number;
   }
 
+  function requireArrayField(container, key, label) {
+    if (!isPlainObject(container) || !hasOwn(container, key)) throw new Error(label + ' is required');
+    if (!Array.isArray(container[key])) throw new Error(label + ' must be an array');
+    return container[key];
+  }
+
   function validateManifestPayload(manifest, limits) {
     if (!isPlainObject(manifest)) throw new Error('manifest must be a plain object');
     if (manifest.protocol !== 2) throw new Error('manifest must use protocol 2');
@@ -871,9 +877,9 @@
     const allowedModules = limits && limits.allowedModules instanceof Set
       ? limits.allowedModules
       : new Set(Array.isArray(limits && limits.allowedModules) ? limits.allowedModules : []);
-    const scopeModules = Array.isArray(manifest.scope.modules) ? manifest.scope.modules : [];
+    const scopeModules = requireArrayField(manifest.scope, 'modules', 'manifest.scope.modules');
     assertModuleIdsAllowed(scopeModules, allowedModules, 'manifest.scope.modules');
-    const moduleSummaries = Array.isArray(manifest.modules) ? manifest.modules : [];
+    const moduleSummaries = requireArrayField(manifest, 'modules', 'manifest.modules');
     assertModuleIdsAllowed(
       moduleSummaries.map(item => item && item.id),
       allowedModules,
@@ -883,7 +889,7 @@
     if (manifestBytes > requireFiniteNonNegativeNumber(limits.maxManifestBytes, 'max manifest bytes')) {
       throw new Error('manifest bytes exceed limit');
     }
-    const attachments = Array.isArray(manifest.attachments) ? manifest.attachments : [];
+    const attachments = requireArrayField(manifest, 'attachments', 'manifest.attachments');
     if (attachments.length > requireFiniteNonNegativeNumber(limits.maxAttachmentCount, 'max attachment count')) {
       throw new Error('attachment count exceeds limit');
     }
@@ -896,8 +902,8 @@
     if (attachmentBytes > requireFiniteNonNegativeNumber(limits.maxAttachmentBytes, 'max attachment bytes')) {
       throw new Error('attachment bytes exceed limit');
     }
-    const records = Array.isArray(manifest.records) ? manifest.records : [];
-    const tombstones = Array.isArray(manifest.tombstones) ? manifest.tombstones : [];
+    const records = requireArrayField(manifest, 'records', 'manifest.records');
+    const tombstones = requireArrayField(manifest, 'tombstones', 'manifest.tombstones');
     for (const record of records.concat(tombstones)) {
       if (!isPlainObject(record)) throw new Error('manifest entries must be plain objects');
       if (record.moduleId != null) assertModuleIdsAllowed([record.moduleId], allowedModules, 'manifest entries');
