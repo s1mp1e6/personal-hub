@@ -1,6 +1,46 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { TextEncoder } = require('node:util');
+const nodeCrypto = require('node:crypto');
 const SyncCore = require('../versions/v1-local-first/sync-core.js');
+
+const syncCoreSource = fs.readFileSync(
+  path.join(__dirname, '../versions/v1-local-first/sync-core.js'),
+  'utf8'
+);
+const hashFixture = {
+  id: 'rec-1',
+  z: 1,
+  nested: {
+    b: 2,
+    a: 1,
+    _sync: { vector: { x: 9 } }
+  },
+  list: [
+    { id: 'child-1', value: 1, _sync: { deleted: false } },
+    { id: 'child-2', value: 2 }
+  ],
+  _sync: { vector: { deviceA: 1 } }
+};
+const hashFixtureCanonicalJson = JSON.stringify({
+  id: 'rec-1',
+  list: [
+    { id: 'child-1', value: 1 },
+    { id: 'child-2', value: 2 }
+  ],
+  nested: {
+    a: 1,
+    b: 2
+  },
+  z: 1
+});
+const expectedHashFixture = nodeCrypto
+  .createHash('sha256')
+  .update(hashFixtureCanonicalJson)
+  .digest('hex');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -19,6 +59,26 @@ test('exports only the Task 2 sync-core API', () => {
   ]);
 });
 
+test('exposes the same four-function API in a browser UMD context', async () => {
+  const context = {
+    crypto: nodeCrypto.webcrypto,
+    TextEncoder,
+    Uint8Array
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  new vm.Script(syncCoreSource, { filename: 'sync-core.js' }).runInContext(context);
+
+  assert.ok(context.PersonalHubSyncCore);
+  assert.deepEqual(Object.keys(context.PersonalHubSyncCore).sort(), [
+    'compareVectors',
+    'hashRecord',
+    'migrateState',
+    'stampChanges'
+  ]);
+  assert.equal(await context.PersonalHubSyncCore.hashRecord(hashFixture), expectedHashFixture);
+});
+
 test('compares dominating and concurrent vectors', () => {
   assert.equal(SyncCore.compareVectors({ a: 2 }, { a: 1 }), 'newer');
   assert.equal(SyncCore.compareVectors({ a: 1 }, { a: 2 }), 'older');
@@ -26,21 +86,8 @@ test('compares dominating and concurrent vectors', () => {
   assert.equal(SyncCore.compareVectors({ a: 1 }, { a: 1 }), 'equal');
 });
 
-test('hashes deterministically while omitting nested _sync metadata', async () => {
-  const left = {
-    id: 'rec-1',
-    z: 1,
-    nested: {
-      b: 2,
-      a: 1,
-      _sync: { vector: { x: 9 } }
-    },
-    list: [
-      { id: 'child-1', value: 1, _sync: { deleted: false } },
-      { id: 'child-2', value: 2 }
-    ],
-    _sync: { vector: { deviceA: 1 } }
-  };
+test('hashes deterministically while omitting nested _sync metadata in Node via node:crypto', async () => {
+  const left = hashFixture;
   const right = {
     list: [
       { value: 1, id: 'child-1' },
@@ -58,14 +105,30 @@ test('hashes deterministically while omitting nested _sync metadata', async () =
     ...right,
     list: [...right.list].reverse()
   };
+  const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
 
-  const leftHash = await SyncCore.hashRecord(left);
-  const rightHash = await SyncCore.hashRecord(right);
-  const arrayHash = await SyncCore.hashRecord(reorderedArray);
+  try {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: {
+        subtle: {
+          digest() {
+            throw new Error('CommonJS hash should not call crypto.subtle');
+          }
+        }
+      },
+      configurable: true
+    });
+    const leftHash = await SyncCore.hashRecord(left);
+    const rightHash = await SyncCore.hashRecord(right);
+    const arrayHash = await SyncCore.hashRecord(reorderedArray);
 
-  assert.match(leftHash, /^[a-f0-9]{64}$/);
-  assert.equal(leftHash, rightHash);
-  assert.notEqual(leftHash, arrayHash);
+    assert.match(leftHash, /^[a-f0-9]{64}$/);
+    assert.equal(leftHash, expectedHashFixture);
+    assert.equal(leftHash, rightHash);
+    assert.notEqual(leftHash, arrayHash);
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+  }
 });
 
 test('migrates legacy records without changing visible fields or mutating input', async () => {
@@ -222,4 +285,58 @@ test('stamps nested removals into lightweight replacement tombstones', async () 
   assert.ok(stamped._sync.tombstones.some(item => item.id === 'keep-me'));
   assert.equal(stamped._sync.preserved, 'yes');
   assert.equal(stamped._sync.localMeta, 'current');
+});
+
+test('tombstones are unique to the exact entity path and parent when ids repeat elsewhere', async () => {
+  const seed = {
+    modules: {
+      todos: {
+        items: [{ id: 'shared-id', txt: 'todo stays' }]
+      },
+      experiments: {
+        items: [
+          {
+            id: 'exp-1',
+            name: 'Experiment One',
+            logs: [
+              { id: 'shared-id', note: 'remove only this one' },
+              { id: 'log-keep', note: 'still here' }
+            ]
+          },
+          {
+            id: 'exp-2',
+            name: 'Experiment Two',
+            logs: [{ id: 'shared-id', note: 'same id, different parent' }]
+          }
+        ]
+      },
+      books: {
+        items: [{
+          id: 'book-1',
+          name: 'Book One',
+          logs: [{ id: 'shared-id', note: 'same id, different module' }]
+        }]
+      }
+    }
+  };
+  const previous = await SyncCore.stampChanges(seed, {}, 'device-a');
+  const current = clone(previous);
+  current.modules.experiments.items[0].logs = current.modules.experiments.items[0].logs.filter(
+    item => item.note !== 'remove only this one'
+  );
+
+  const stamped = await SyncCore.stampChanges(current, previous, 'device-a');
+  const repeatedIdTombstones = stamped._sync.tombstones.filter(item => item.id === 'shared-id');
+  const experimentLogTombstone = repeatedIdTombstones.find(item =>
+    item.path === 'modules.experiments.items.logs' && item.parentId === 'exp-1'
+  );
+
+  assert.equal(repeatedIdTombstones.length, 1);
+  assert.ok(experimentLogTombstone);
+  assert.equal(experimentLogTombstone.moduleId, 'experiments');
+  assert.equal(experimentLogTombstone._sync.deleted, true);
+  assert.equal(experimentLogTombstone._sync.vector['device-a'], 2);
+  assert.equal(stamped.modules.todos.items[0]._sync.vector['device-a'], 1);
+  assert.equal(stamped.modules.experiments.items[1].logs[0]._sync.vector['device-a'], 1);
+  assert.equal(stamped.modules.books.items[0].logs[0]._sync.vector['device-a'], 1);
 });

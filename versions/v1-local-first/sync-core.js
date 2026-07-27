@@ -3,11 +3,16 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.PersonalHubSyncCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
-  const nodeCrypto = typeof require === 'function' ? require('node:crypto') : null;
+  const isCommonJsNode =
+    typeof module === 'object' &&
+    !!module &&
+    !!module.exports &&
+    typeof require === 'function';
+  const nodeCrypto = isCommonJsNode ? require('node:crypto') : null;
   const TextEncoderCtor =
     typeof TextEncoder !== 'undefined'
       ? TextEncoder
-      : typeof require === 'function'
+      : isCommonJsNode
         ? require('node:util').TextEncoder
         : null;
   const encoder = TextEncoderCtor ? new TextEncoderCtor() : null;
@@ -147,12 +152,12 @@
   async function sha256Hex(text) {
     if (!encoder) throw new Error('TextEncoder unavailable');
     const bytes = encoder.encode(text);
+    if (nodeCrypto && nodeCrypto.createHash) {
+      return nodeCrypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+    }
     if (root.crypto && root.crypto.subtle) {
       const digest = await root.crypto.subtle.digest('SHA-256', bytes);
       return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
-    }
-    if (nodeCrypto && nodeCrypto.createHash) {
-      return nodeCrypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex');
     }
     throw new Error('SHA-256 unavailable');
   }
