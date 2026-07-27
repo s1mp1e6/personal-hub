@@ -338,27 +338,34 @@
     return JSON.stringify(stableValue(comparable, false));
   }
 
-  function matchingArrayIndex(senderItems, receiverItems, index) {
-    if (!Array.isArray(receiverItems)) return -1;
-    const value = senderItems[index];
-    if (isObject(value) && value.id != null) {
-      const matches = receiverItems
-        .map((item, itemIndex) => ({ item: item, index: itemIndex }))
-        .filter(entry => isObject(entry.item) && entry.item.id != null && String(entry.item.id) === String(value.id));
-      return matches.length === 1 ? matches[0].index : -1;
+  function buildArrayMatchIndex(items) {
+    const ids = new Map();
+    const businessKeys = new Map();
+    const itemKeys = [];
+    if (!Array.isArray(items)) return { ids: ids, businessKeys: businessKeys, itemKeys: itemKeys };
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      const hasId = isObject(item) && item.id != null;
+      const key = hasId ? String(item.id) : attachmentFreeBusinessKey(item);
+      itemKeys[index] = { hasId: hasId, key: key };
+      if (key == null) continue;
+      const matches = hasId ? ids : businessKeys;
+      const existing = matches.get(key);
+      if (existing) existing.count += 1;
+      else matches.set(key, { count: 1, index: index });
     }
-    const businessKey = attachmentFreeBusinessKey(value);
-    if (businessKey == null) return -1;
-    const senderMatches = senderItems.filter(item =>
-      (!isObject(item) || item.id == null) && attachmentFreeBusinessKey(item) === businessKey
-    );
-    if (senderMatches.length !== 1) return -1;
-    const receiverMatches = receiverItems
-      .map((item, itemIndex) => ({ item: item, index: itemIndex }))
-      .filter(entry =>
-        (!isObject(entry.item) || entry.item.id == null) && attachmentFreeBusinessKey(entry.item) === businessKey
-      );
-    return receiverMatches.length === 1 ? receiverMatches[0].index : -1;
+    return { ids: ids, businessKeys: businessKeys, itemKeys: itemKeys };
+  }
+
+  function matchingArrayIndex(index, senderIndex, receiverIndex) {
+    const itemKey = senderIndex.itemKeys[index];
+    const hasId = itemKey.hasId;
+    const key = itemKey.key;
+    if (key == null) return -1;
+    const senderMatch = (hasId ? senderIndex.ids : senderIndex.businessKeys).get(key);
+    const receiverMatch = (hasId ? receiverIndex.ids : receiverIndex.businessKeys).get(key);
+    if (!senderMatch || senderMatch.count !== 1 || !receiverMatch || receiverMatch.count !== 1) return -1;
+    return receiverMatch.index;
   }
 
   function canMergeAttachmentContainers(senderValue, receiverValue) {
@@ -382,8 +389,10 @@
     if (Array.isArray(senderValue)) {
       const merged = [];
       const handledReceiverIndexes = new Set();
+      const senderMatchIndex = buildArrayMatchIndex(senderValue);
+      const receiverMatchIndex = buildArrayMatchIndex(receiverValue);
       for (let index = 0; index < senderValue.length; index += 1) {
-        const receiverIndex = matchingArrayIndex(senderValue, receiverValue, index);
+        const receiverIndex = matchingArrayIndex(index, senderMatchIndex, receiverMatchIndex);
         const receiverItem = receiverIndex >= 0 ? receiverValue[receiverIndex] : undefined;
         const canMerge = canMergeAttachmentContainers(senderValue[index], receiverItem);
         const next = mergeWithoutAttachmentReferences(
@@ -569,6 +578,7 @@
     const entities = collectEntities(migrated, [], null, []);
     for (const entity of entities) {
       if (!selectedModules.has(entity.moduleId)) continue;
+      if (records.has(entity.key)) throw new Error('duplicate live record identity: ' + entity.id);
       const entry = await buildRecordEntry(entity, scope.includeAttachments);
       records.set(entity.key, entry);
       const moduleSummary = moduleSummaries.get(entity.moduleId);
@@ -583,7 +593,10 @@
     for (const tombstone of rootTombstones) {
       const entry = buildTombstoneEntry(tombstone);
       if (!selectedModules.has(entry.meta.moduleId)) continue;
-      tombstones.set(tombstoneKey(entry.value), entry);
+      const key = tombstoneKey(entry.value);
+      if (tombstones.has(key)) throw new Error('duplicate tombstone identity: ' + entry.meta.id);
+      if (records.has(key)) throw new Error('live record and tombstone identity conflict: ' + entry.meta.id);
+      tombstones.set(key, entry);
       moduleSummaries.get(entry.meta.moduleId).tombstoneCount += 1;
     }
 

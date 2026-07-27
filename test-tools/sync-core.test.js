@@ -282,6 +282,84 @@ test('buildManifest rejects unknown requested modules', async () => {
   );
 });
 
+test('buildManifest rejects duplicate or conflicting structured identities before returning a manifest', async () => {
+  const pathSegments = ['modules', 'todos', 'items'];
+  const scope = { modules: ['todos'], includeAttachments: false, includeSettings: false };
+  const validState = {
+    modules: {
+      todos: {
+        items: [{ id: 'todo-live', txt: 'live record', _sync: { vector: { deviceA: 1 } } }]
+      }
+    },
+    _sync: {
+      tombstones: [makeTombstone({ id: 'todo-gone', pathSegments, vector: { deviceA: 2 } })]
+    }
+  };
+  const manifest = await SyncCore.buildManifest(validState, scope);
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+
+  assert.equal(
+    SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest }, limits),
+    true
+  );
+
+  for (const [name, state, expectedPattern] of [
+    [
+      'duplicate live records',
+      {
+        modules: {
+          todos: {
+            items: [
+              { id: 'duplicate-live', txt: 'first' },
+              { id: 'duplicate-live', txt: 'second' }
+            ]
+          }
+        },
+        _sync: { tombstones: [] }
+      },
+      /duplicate live record identity.*duplicate-live/i
+    ],
+    [
+      'duplicate tombstones',
+      {
+        modules: { todos: { items: [] } },
+        _sync: {
+          tombstones: [
+            makeTombstone({ id: 'duplicate-gone', pathSegments, vector: { deviceA: 1 } }),
+            makeTombstone({ id: 'duplicate-gone', pathSegments, vector: { deviceB: 1 } })
+          ]
+        }
+      },
+      /duplicate tombstone identity.*duplicate-gone/i
+    ],
+    [
+      'live and tombstone conflict',
+      {
+        modules: {
+          todos: {
+            items: [{ id: 'conflicted-record', txt: 'still live' }]
+          }
+        },
+        _sync: {
+          tombstones: [
+            makeTombstone({ id: 'conflicted-record', pathSegments, vector: { deviceA: 1 } })
+          ]
+        }
+      },
+      /live record.*tombstone identity conflict.*conflicted-record/i
+    ]
+  ]) {
+    await assert.rejects(() => SyncCore.buildManifest(state, scope), expectedPattern, name);
+  }
+});
+
 test('builds a safe merge plan for every record relationship', async () => {
   const { sender, receiver, scope } = buildMergeFixture();
   const senderBefore = clone(sender);
@@ -826,6 +904,74 @@ test('merge scope without attachments never matches no-id array items by index',
     assert.deepEqual(sender, senderBefore, item.name);
     assert.deepEqual(receiver, receiverBefore, item.name);
   }
+});
+
+test('merge scope precomputes no-id attachment match keys once per array side', async () => {
+  const count = 800;
+  const sender = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-large-array',
+          choices: Array.from({ length: count }, (_, index) => ({ key: 'item-' + index, value: index })),
+          _sync: { vector: { sender: 2 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiver = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-large-array',
+          choices: Array.from({ length: count }, (_, offset) => {
+            const index = count - offset - 1;
+            return {
+              key: 'item-' + index,
+              value: index,
+              attachment: {
+                fileId: 'file-' + index,
+                name: 'file-' + index + '.txt',
+                type: 'text/plain',
+                size: index,
+                kind: 'doc'
+              }
+            };
+          }),
+          _sync: { vector: { sender: 1 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const originalStringify = JSON.stringify;
+  let stringifyCalls = 0;
+  let applied;
+
+  JSON.stringify = function () {
+    stringifyCalls += 1;
+    return originalStringify.apply(this, arguments);
+  };
+  try {
+    applied = await SyncCore.applyMergePlan(plan, receiver);
+  } finally {
+    JSON.stringify = originalStringify;
+  }
+
+  const choices = applied.modules.todos.items[0].choices;
+  assert.equal(choices.length, count);
+  assert.equal(choices[0].attachment.fileId, 'file-0');
+  assert.equal(choices[count - 1].attachment.fileId, 'file-' + (count - 1));
+  assert.ok(
+    stringifyCalls < count * 3,
+    'stable business keys should be serialized once per side; observed ' + stringifyCalls + ' calls'
+  );
 });
 
 test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
