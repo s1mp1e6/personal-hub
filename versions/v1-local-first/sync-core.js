@@ -657,7 +657,9 @@
         category = 'keep';
       } else if (senderTombstone && receiverRecord) {
         const relation = compareVectors(senderTombstone.meta.vector, receiverRecord.meta.vector);
-        category = relation === 'newer' ? 'pendingDelete' : 'deleteConflict';
+        if (relation === 'newer') category = 'pendingDelete';
+        else if (relation === 'older') category = 'keep';
+        else category = 'deleteConflict';
       } else if (senderRecord && receiverTombstone) {
         const relation = compareVectors(senderRecord.meta.vector, receiverTombstone.meta.vector);
         if (relation === 'newer') category = 'add';
@@ -946,21 +948,33 @@
     requireNonEmptyString(entry.id, label + '.id');
     requireStringOrNull(entry.parentId, label + '.parentId');
     const pathSegments = requireStringArray(entry.pathSegments, label + '.pathSegments');
-    if (pathSegments[0] === 'modules') {
-      if (pathSegments.length < 3) throw new Error(label + '.pathSegments must include a module collection path');
-      const pathModuleId = requireNonEmptyString(pathSegments[1], label + '.pathSegments[1]');
-      if (entry.moduleId == null) throw new Error(label + '.moduleId is required');
-      const moduleId = requireNonEmptyString(entry.moduleId, label + '.moduleId');
-      if (moduleId !== pathModuleId) throw new Error(label + '.moduleId must match pathSegments[1]');
-      requireScopeModuleId(moduleId, scopeModules, allowedModules, label + '.moduleId');
-    } else if (entry.moduleId != null) {
-      requireNonEmptyString(entry.moduleId, label + '.moduleId');
-    }
+    if (pathSegments[0] !== 'modules') throw new Error(label + '.pathSegments must begin with modules');
+    if (pathSegments.length < 3) throw new Error(label + '.pathSegments must include a module collection path');
+    const pathModuleId = requireNonEmptyString(pathSegments[1], label + '.pathSegments[1]');
+    if (entry.moduleId == null) throw new Error(label + '.moduleId is required');
+    const moduleId = requireNonEmptyString(entry.moduleId, label + '.moduleId');
+    if (moduleId !== pathModuleId) throw new Error(label + '.moduleId must match pathSegments[1]');
+    requireScopeModuleId(moduleId, scopeModules, allowedModules, label + '.moduleId');
     requireSafeNonNegativeInteger(entry.size, label + '.size');
     if (isRecord) {
       requireSafeNonNegativeInteger(entry.attachmentCount, label + '.attachmentCount');
       requireSafeNonNegativeInteger(entry.attachmentBytes, label + '.attachmentBytes');
     }
+  }
+
+  function validateManifestAttachmentEntry(attachment, index, scopeModules, allowedModules) {
+    const label = 'manifest.attachments[' + index + ']';
+    if (!isPlainObject(attachment)) throw new Error(label + ' must be a plain object');
+    requireSafeNonNegativeInteger(attachment.size, label + '.size');
+    const pathSegments = requireStringArray(attachment.pathSegments, label + '.pathSegments');
+    if (pathSegments[0] !== 'modules') throw new Error(label + '.pathSegments must begin with modules');
+    if (pathSegments.length < 3) throw new Error(label + '.pathSegments must include a module collection path');
+    const pathModuleId = requireNonEmptyString(pathSegments[1], label + '.pathSegments[1]');
+    if (attachment.moduleId == null) throw new Error(label + '.moduleId is required');
+    const moduleId = requireNonEmptyString(attachment.moduleId, label + '.moduleId');
+    if (moduleId !== pathModuleId) throw new Error(label + '.moduleId must match pathSegments[1]');
+    requireScopeModuleId(moduleId, scopeModules, allowedModules, label + '.moduleId');
+    requireStringOrNull(attachment.parentId, label + '.parentId');
   }
 
   function validateManifestPayload(manifest, limits) {
@@ -988,12 +1002,8 @@
     let attachmentBytes = 0;
     for (let index = 0; index < attachments.length; index += 1) {
       const attachment = attachments[index];
-      const label = 'manifest.attachments[' + index + ']';
-      if (!isPlainObject(attachment)) throw new Error(label + ' must be a plain object');
-      attachmentBytes += requireSafeNonNegativeInteger(attachment.size, label + '.size');
-      if (attachment.moduleId != null) requireScopeModuleId(attachment.moduleId, scopeModuleSet, allowedModules, label + '.moduleId');
-      if (attachment.pathSegments != null) requireStringArray(attachment.pathSegments, label + '.pathSegments');
-      if (attachment.parentId != null) requireStringOrNull(attachment.parentId, label + '.parentId');
+      validateManifestAttachmentEntry(attachment, index, scopeModuleSet, allowedModules);
+      attachmentBytes += attachment.size;
     }
     if (attachmentBytes > requireFiniteNonNegativeNumber(limits.maxAttachmentBytes, 'max attachment bytes')) {
       throw new Error('attachment bytes exceed limit');

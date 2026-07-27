@@ -356,6 +356,59 @@ test('merge planning keeps same ids distinct across separate paths', async () =>
   ]);
 });
 
+test('sender tombstones against live receiver records choose pendingDelete, keep, or deleteConflict safely', async () => {
+  for (const [name, senderVector, receiverVector, expectedCategory] of [
+    ['sender tombstone newer', { deviceA: 2 }, { deviceA: 1 }, 'pendingDelete'],
+    ['receiver live newer', { deviceA: 1 }, { deviceA: 2 }, 'keep'],
+    ['delete versus concurrent live change', { deviceA: 1 }, { deviceB: 1 }, 'deleteConflict']
+  ]) {
+    const sender = {
+      modules: {
+        todos: {
+          items: []
+        }
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({
+            id: 'todo-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: senderVector
+          })
+        ]
+      }
+    };
+    const receiver = {
+      modules: {
+        todos: {
+          items: [{ id: 'todo-1', txt: 'keep me live', _sync: { vector: receiverVector } }]
+        }
+      },
+      _sync: { tombstones: [] }
+    };
+
+    const plan = await SyncCore.buildMergePlan(sender, receiver, {
+      modules: ['todos'],
+      includeAttachments: false,
+      includeSettings: false
+    });
+    const operation = plan.operations.find(item => item.identity.id === 'todo-1');
+
+    assert.ok(operation, name);
+    assert.equal(operation.category, expectedCategory, name);
+    assert.equal(operation.selected, false, name);
+    assert.deepEqual(plan.summary, {
+      add: 0,
+      update: 0,
+      keep: expectedCategory === 'keep' ? 1 : 0,
+      conflictCopy: 0,
+      pendingDelete: expectedCategory === 'pendingDelete' ? 1 : 0,
+      deleteConflict: expectedCategory === 'deleteConflict' ? 1 : 0,
+      same: 0
+    });
+  }
+});
+
 test('applyMergePlan preserves receiver values, copies conflicts, and leaves deletions off by default', async () => {
   const { sender, receiver, scope } = buildMergeFixture();
   const plan = await SyncCore.buildMergePlan(sender, receiver, scope);
@@ -780,10 +833,142 @@ test('validateEnvelope rejects forged manifest module identities and invalid ide
         }
       }),
       /manifest\.tombstones\[0\]\.moduleId.*pathSegments\[1\]/i
+    ],
+    [
+      'record top-level path is rejected for task 3 manifests',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{
+            ...manifest.records[0],
+            moduleId: null,
+            pathSegments: ['dashWidgets']
+          }]
+        }
+      }),
+      /manifest\.records\[0\]\.pathSegments.*modules/i
+    ],
+    [
+      'tombstone top-level path is rejected for task 3 manifests',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          tombstones: [{
+            ...manifest.tombstones[0],
+            moduleId: null,
+            pathSegments: ['dashWidgets']
+          }]
+        }
+      }),
+      /manifest\.tombstones\[0\]\.pathSegments.*modules/i
     ]
   ]) {
     assert.throws(
       () => SyncCore.validateEnvelope(buildEnvelope(), nextLimits || limits),
+      expectedPattern,
+      name
+    );
+  }
+});
+
+test('validateEnvelope rejects attachment identity paths outside selected modules or with forged modules', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'manifest source',
+            attachment: {
+              fileId: 'file-1',
+              name: 'scan.pdf',
+              type: 'application/pdf',
+              size: 64,
+              kind: 'doc'
+            }
+          }]
+        }
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: false }
+  );
+  const limits = {
+    allowedModules: new Set(['todos', 'diary']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+
+  for (const [name, attachmentPatch, expectedPattern, nextLimits] of [
+    [
+      'attachment pathSegments must begin with modules',
+      {
+        moduleId: null,
+        pathSegments: ['dashWidgets']
+      },
+      /manifest\.attachments\[0\]\.pathSegments.*modules/i
+    ],
+    [
+      'attachment moduleId is required under modules path',
+      {
+        moduleId: null,
+        pathSegments: ['modules', 'todos', 'items']
+      },
+      /manifest\.attachments\[0\]\.moduleId.*required/i
+    ],
+    [
+      'attachment forged path module is rejected',
+      {
+        moduleId: 'todos',
+        pathSegments: ['modules', 'diary', 'items']
+      },
+      /manifest\.attachments\[0\]\.moduleId.*pathSegments\[1\]/i
+    ],
+    [
+      'attachment module must be present in scope.modules',
+      {
+        moduleId: 'todos',
+        pathSegments: ['modules', 'todos', 'items']
+      },
+      /manifest\.attachments\[0\]\.moduleId.*scope\.modules/i,
+      {
+        ...limits,
+        allowedModules: new Set(['todos', 'diary'])
+      }
+    ],
+    [
+      'attachment module must be present in limits.allowedModules',
+      {
+        moduleId: 'todos',
+        pathSegments: ['modules', 'todos', 'items']
+      },
+      /manifest\.attachments\[0\]\.moduleId.*allowed/i,
+      {
+        ...limits,
+        allowedModules: new Set(['diary'])
+      }
+    ]
+  ]) {
+    const nextManifest = {
+      ...manifest,
+      attachments: [{ ...manifest.attachments[0], ...attachmentPatch }]
+    };
+    if (name === 'attachment module must be present in scope.modules') {
+      nextManifest.scope = { ...manifest.scope, modules: ['diary'] };
+      nextManifest.modules = [{ ...manifest.modules[0], id: 'diary' }];
+    }
+    if (name === 'attachment module must be present in limits.allowedModules') {
+      nextManifest.scope = { ...manifest.scope, modules: ['diary'] };
+      nextManifest.modules = [{ ...manifest.modules[0], id: 'diary' }];
+    }
+    assert.throws(
+      () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: nextManifest }, nextLimits || limits),
       expectedPattern,
       name
     );
