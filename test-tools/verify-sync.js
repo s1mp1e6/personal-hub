@@ -33,18 +33,26 @@ async function main() {
   const url = `http://127.0.0.1:${server.address().port}/index.html`;
   const browser = await chromium.launch();
   try {
-    const sender = await browser.newPage({ viewport: { width: 1100, height: 760 } });
-    const receiver = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+    const senderContext = await browser.newContext({ viewport: { width: 1100, height: 760 } });
+    const receiverContext = await browser.newContext({ viewport: { width: 1100, height: 760 } });
+    const sender = await senderContext.newPage();
+    const receiver = await receiverContext.newPage();
     sender.on('dialog', d => d.accept());
     receiver.on('dialog', d => d.accept());
+    const marker = `legacy-sync-${Date.now()}`;
     await sender.goto(`${url}?sync=sender-${Date.now()}`, { waitUntil: 'networkidle' });
     await receiver.goto(`${url}?sync=receiver-${Date.now()}`, { waitUntil: 'networkidle' });
 
     await sender.locator('.nav-item[data-mid="todos"]').click();
     await sender.locator('#fab').click();
-    await sender.locator('#f_txt').fill('WebRTC 同步验证待办');
+    await sender.locator('#f_txt').fill(marker);
     await sender.locator('#modalSave').click();
-    await sender.getByText('WebRTC 同步验证待办').waitFor();
+    await sender.getByText(marker).waitFor();
+
+    await receiver.locator('.nav-item[data-mid="todos"]').click();
+    if (await receiver.getByText(marker).count()) {
+      throw new Error('isolated receiver unexpectedly contained the legacy sync marker before transfer');
+    }
 
     await openSync(sender);
     await openSync(receiver);
@@ -80,11 +88,11 @@ async function main() {
     await receiver.getByText('已接收并导入备份').waitFor({ timeout: 15000 });
     await receiver.locator('.modal .x').click();
     await receiver.locator('.nav-item[data-mid="todos"]').click();
-    await receiver.getByText('WebRTC 同步验证待办').waitFor();
+    await receiver.getByText(marker).waitFor();
 
     console.log(JSON.stringify({ connected: true, transferred: true }, null, 2));
-    await sender.close();
-    await receiver.close();
+    await senderContext.close();
+    await receiverContext.close();
   } finally {
     await browser.close();
     server.close();
