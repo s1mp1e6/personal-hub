@@ -815,6 +815,34 @@
       }
 
       if (operation.category === 'same') {
+        if (
+          (operation.sender && operation.sender.kind === 'tombstone') ||
+          (operation.receiver && operation.receiver.kind === 'tombstone')
+        ) {
+          const senderTombstone =
+            operation.sender && operation.sender.kind === 'tombstone'
+              ? normalizeTombstone(operation.sender.value)
+              : null;
+          const receiverTombstone =
+            operation.receiver && operation.receiver.kind === 'tombstone'
+              ? normalizeTombstone(operation.receiver.value)
+              : null;
+          const mergedTombstone = normalizeTombstone(receiverTombstone || senderTombstone);
+          mergedTombstone._sync.vector = mergeVectors(
+            receiverTombstone && receiverTombstone._sync ? receiverTombstone._sync.vector : null,
+            senderTombstone && senderTombstone._sync ? senderTombstone._sync.vector : null
+          );
+          const tombstoneMap = new Map(
+            tombstones.map(item => [tombstoneKey(normalizeTombstone(item)), normalizeTombstone(item)])
+          );
+          tombstoneMap.set(tombstoneKey(mergedTombstone), mergedTombstone);
+          tombstones.splice(
+            0,
+            tombstones.length,
+            ...Array.from(tombstoneMap.values()).sort((left, right) => tombstoneKey(left).localeCompare(tombstoneKey(right)))
+          );
+          continue;
+        }
         const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, false);
         if (!collection) continue;
         const record = collection.find(item => isObject(item) && item.id != null && String(item.id) === String(operation.identity.id));
@@ -864,10 +892,75 @@
     return number;
   }
 
+  function requireSafeNonNegativeInteger(value, label) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || !Number.isSafeInteger(value)) {
+      throw new Error(label + ' must be a safe non-negative integer');
+    }
+    return value;
+  }
+
   function requireArrayField(container, key, label) {
     if (!isPlainObject(container) || !hasOwn(container, key)) throw new Error(label + ' is required');
     if (!Array.isArray(container[key])) throw new Error(label + ' must be an array');
     return container[key];
+  }
+
+  function requireNonEmptyString(value, label) {
+    if (typeof value !== 'string' || value === '') throw new Error(label + ' must be a non-empty string');
+    return value;
+  }
+
+  function requireStringOrNull(value, label) {
+    if (value !== null && typeof value !== 'string') throw new Error(label + ' must be a string or null');
+    return value;
+  }
+
+  function requireStringArray(value, label) {
+    if (!Array.isArray(value)) throw new Error(label + ' must be an array');
+    for (let index = 0; index < value.length; index += 1) {
+      requireNonEmptyString(value[index], label + '[' + index + ']');
+    }
+    return value;
+  }
+
+  function requireScopeModuleId(moduleId, scopeModules, allowedModules, label) {
+    requireNonEmptyString(moduleId, label);
+    if (!allowedModules.has(moduleId)) throw new Error(label + ' must be present in limits.allowedModules');
+    if (!scopeModules.has(moduleId)) throw new Error(label + ' must be present in manifest.scope.modules');
+    return moduleId;
+  }
+
+  function validateManifestModuleSummary(summary, index, scopeModules, allowedModules) {
+    const label = 'manifest.modules[' + index + ']';
+    if (!isPlainObject(summary)) throw new Error(label + ' must be a plain object');
+    requireScopeModuleId(summary.id, scopeModules, allowedModules, label + '.id');
+    requireSafeNonNegativeInteger(summary.recordCount, label + '.recordCount');
+    requireSafeNonNegativeInteger(summary.tombstoneCount, label + '.tombstoneCount');
+    requireSafeNonNegativeInteger(summary.attachmentCount, label + '.attachmentCount');
+    requireSafeNonNegativeInteger(summary.attachmentBytes, label + '.attachmentBytes');
+    requireSafeNonNegativeInteger(summary.bytes, label + '.bytes');
+  }
+
+  function validateManifestIdentityEntry(entry, label, scopeModules, allowedModules, isRecord) {
+    if (!isPlainObject(entry)) throw new Error(label + ' must be a plain object');
+    requireNonEmptyString(entry.id, label + '.id');
+    requireStringOrNull(entry.parentId, label + '.parentId');
+    const pathSegments = requireStringArray(entry.pathSegments, label + '.pathSegments');
+    if (pathSegments[0] === 'modules') {
+      if (pathSegments.length < 3) throw new Error(label + '.pathSegments must include a module collection path');
+      const pathModuleId = requireNonEmptyString(pathSegments[1], label + '.pathSegments[1]');
+      if (entry.moduleId == null) throw new Error(label + '.moduleId is required');
+      const moduleId = requireNonEmptyString(entry.moduleId, label + '.moduleId');
+      if (moduleId !== pathModuleId) throw new Error(label + '.moduleId must match pathSegments[1]');
+      requireScopeModuleId(moduleId, scopeModules, allowedModules, label + '.moduleId');
+    } else if (entry.moduleId != null) {
+      requireNonEmptyString(entry.moduleId, label + '.moduleId');
+    }
+    requireSafeNonNegativeInteger(entry.size, label + '.size');
+    if (isRecord) {
+      requireSafeNonNegativeInteger(entry.attachmentCount, label + '.attachmentCount');
+      requireSafeNonNegativeInteger(entry.attachmentBytes, label + '.attachmentBytes');
+    }
   }
 
   function validateManifestPayload(manifest, limits) {
@@ -879,12 +972,11 @@
       : new Set(Array.isArray(limits && limits.allowedModules) ? limits.allowedModules : []);
     const scopeModules = requireArrayField(manifest.scope, 'modules', 'manifest.scope.modules');
     assertModuleIdsAllowed(scopeModules, allowedModules, 'manifest.scope.modules');
+    const scopeModuleSet = new Set(scopeModules);
     const moduleSummaries = requireArrayField(manifest, 'modules', 'manifest.modules');
-    assertModuleIdsAllowed(
-      moduleSummaries.map(item => item && item.id),
-      allowedModules,
-      'manifest.modules'
-    );
+    for (let index = 0; index < moduleSummaries.length; index += 1) {
+      validateManifestModuleSummary(moduleSummaries[index], index, scopeModuleSet, allowedModules);
+    }
     const manifestBytes = serializedSize(manifest);
     if (manifestBytes > requireFiniteNonNegativeNumber(limits.maxManifestBytes, 'max manifest bytes')) {
       throw new Error('manifest bytes exceed limit');
@@ -894,20 +986,29 @@
       throw new Error('attachment count exceeds limit');
     }
     let attachmentBytes = 0;
-    for (const attachment of attachments) {
-      if (!isPlainObject(attachment)) throw new Error('attachments must contain plain objects');
-      attachmentBytes += requireFiniteNonNegativeNumber(attachment.size, 'attachment size');
-      if (attachment.moduleId != null) assertModuleIdsAllowed([attachment.moduleId], allowedModules, 'attachments');
+    for (let index = 0; index < attachments.length; index += 1) {
+      const attachment = attachments[index];
+      const label = 'manifest.attachments[' + index + ']';
+      if (!isPlainObject(attachment)) throw new Error(label + ' must be a plain object');
+      attachmentBytes += requireSafeNonNegativeInteger(attachment.size, label + '.size');
+      if (attachment.moduleId != null) requireScopeModuleId(attachment.moduleId, scopeModuleSet, allowedModules, label + '.moduleId');
+      if (attachment.pathSegments != null) requireStringArray(attachment.pathSegments, label + '.pathSegments');
+      if (attachment.parentId != null) requireStringOrNull(attachment.parentId, label + '.parentId');
     }
     if (attachmentBytes > requireFiniteNonNegativeNumber(limits.maxAttachmentBytes, 'max attachment bytes')) {
       throw new Error('attachment bytes exceed limit');
     }
     const records = requireArrayField(manifest, 'records', 'manifest.records');
     const tombstones = requireArrayField(manifest, 'tombstones', 'manifest.tombstones');
-    for (const record of records.concat(tombstones)) {
-      if (!isPlainObject(record)) throw new Error('manifest entries must be plain objects');
-      if (record.moduleId != null) assertModuleIdsAllowed([record.moduleId], allowedModules, 'manifest entries');
-      requireFiniteNonNegativeNumber(record.size, 'record size');
+    for (let index = 0; index < records.length; index += 1) {
+      validateManifestIdentityEntry(records[index], 'manifest.records[' + index + ']', scopeModuleSet, allowedModules, true);
+    }
+    for (let index = 0; index < tombstones.length; index += 1) {
+      validateManifestIdentityEntry(tombstones[index], 'manifest.tombstones[' + index + ']', scopeModuleSet, allowedModules, false);
+    }
+    if (hasOwn(manifest, 'settings')) {
+      if (!isPlainObject(manifest.settings)) throw new Error('manifest.settings must be a plain object');
+      requireSafeNonNegativeInteger(manifest.settings.size, 'manifest.settings.size');
     }
   }
 

@@ -615,6 +615,398 @@ test('validateEnvelope rejects malformed manifest collections with field-specifi
   }
 });
 
+test('validateEnvelope rejects forged manifest module identities and invalid identity field types', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{ id: 'todo-1', txt: 'manifest source' }]
+        }
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({
+            id: 'todo-gone-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: { deviceA: 2 }
+          })
+        ]
+      }
+    },
+    { modules: ['todos'], includeAttachments: false, includeSettings: false }
+  );
+  const limits = {
+    allowedModules: new Set(['todos', 'diary']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+
+  for (const [name, buildEnvelope, expectedPattern, nextLimits] of [
+    [
+      'record pathSegments must be an array',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{ ...manifest.records[0], pathSegments: 'modules.todos.items' }]
+        }
+      }),
+      /manifest\.records\[0\]\.pathSegments.*array/i
+    ],
+    [
+      'record id must be a string',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{ ...manifest.records[0], id: 42 }]
+        }
+      }),
+      /manifest\.records\[0\]\.id.*string/i
+    ],
+    [
+      'record parentId must be a string or null',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{ ...manifest.records[0], parentId: 42 }]
+        }
+      }),
+      /manifest\.records\[0\]\.parentId.*string or null/i
+    ],
+    [
+      'record moduleId is required under modules path',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{ ...manifest.records[0], moduleId: null }]
+        }
+      }),
+      /manifest\.records\[0\]\.moduleId.*required/i
+    ],
+    [
+      'record moduleId must match pathSegments[1]',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{ ...manifest.records[0], moduleId: 'diary' }]
+        }
+      }),
+      /manifest\.records\[0\]\.moduleId.*pathSegments\[1\]/i
+    ],
+    [
+      'forged record path module is rejected even if moduleId looks allowed',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          records: [{
+            ...manifest.records[0],
+            moduleId: 'todos',
+            pathSegments: ['modules', 'diary', 'items']
+          }]
+        }
+      }),
+      /manifest\.records\[0\]\.moduleId.*pathSegments\[1\]/i
+    ],
+    [
+      'record path module must be present in scope.modules',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          scope: { ...manifest.scope, modules: ['diary'] },
+          modules: [{ ...manifest.modules[0], id: 'diary' }],
+          records: [{
+            ...manifest.records[0],
+            moduleId: 'todos',
+            pathSegments: ['modules', 'todos', 'items']
+          }]
+        }
+      }),
+      /manifest\.records\[0\]\.moduleId.*scope\.modules/i
+    ],
+    [
+      'record path module must be present in limits.allowedModules',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          scope: { ...manifest.scope, modules: ['diary'] },
+          modules: [{ ...manifest.modules[0], id: 'diary' }]
+        }
+      }),
+      /manifest\.records\[0\]\.moduleId.*allowed/i,
+      { ...limits, allowedModules: new Set(['diary']) }
+    ],
+    [
+      'tombstone pathSegments must be an array',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          tombstones: [{ ...manifest.tombstones[0], pathSegments: 'modules.todos.items' }]
+        }
+      }),
+      /manifest\.tombstones\[0\]\.pathSegments.*array/i
+    ],
+    [
+      'tombstone forged path module is rejected',
+      () => ({
+        protocol: 2,
+        type: 'manifest',
+        manifest: {
+          ...manifest,
+          tombstones: [{
+            ...manifest.tombstones[0],
+            moduleId: 'todos',
+            pathSegments: ['modules', 'diary', 'items']
+          }]
+        }
+      }),
+      /manifest\.tombstones\[0\]\.moduleId.*pathSegments\[1\]/i
+    ]
+  ]) {
+    assert.throws(
+      () => SyncCore.validateEnvelope(buildEnvelope(), nextLimits || limits),
+      expectedPattern,
+      name
+    );
+  }
+});
+
+test('validateEnvelope rejects non-integer manifest module summary counts and byte totals', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'manifest source',
+            attachment: {
+              fileId: 'file-1',
+              name: 'scan.pdf',
+              type: 'application/pdf',
+              size: 64,
+              kind: 'doc'
+            }
+          }]
+        }
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({
+            id: 'todo-gone-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: { deviceA: 2 }
+          })
+        ]
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: false }
+  );
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const invalidValues = [-1, 1.5, Infinity, '5'];
+
+  for (const field of ['recordCount', 'tombstoneCount', 'attachmentCount', 'attachmentBytes', 'bytes']) {
+    for (const badValue of invalidValues) {
+      const nextManifest = {
+        ...manifest,
+        modules: [{ ...manifest.modules[0], [field]: badValue }]
+      };
+      assert.throws(
+        () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: nextManifest }, limits),
+        new RegExp('manifest\\.modules\\[0\\]\\.' + field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+        field + ':' + String(badValue)
+      );
+    }
+  }
+});
+
+test('validateEnvelope rejects non-integer record, tombstone, attachment, and settings size fields', async () => {
+  const manifest = await SyncCore.buildManifest(
+    {
+      modules: {
+        todos: {
+          items: [{
+            id: 'todo-1',
+            txt: 'manifest source',
+            attachment: {
+              fileId: 'file-1',
+              name: 'scan.pdf',
+              type: 'application/pdf',
+              size: 64,
+              kind: 'doc'
+            }
+          }]
+        }
+      },
+      appearance: {
+        theme: 'dark'
+      },
+      _sync: {
+        tombstones: [
+          makeTombstone({
+            id: 'todo-gone-1',
+            pathSegments: ['modules', 'todos', 'items'],
+            vector: { deviceA: 2 }
+          })
+        ]
+      }
+    },
+    { modules: ['todos'], includeAttachments: true, includeSettings: true }
+  );
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    seenChunkIndexes: new Set()
+  };
+  const invalidValues = [-1, 1.5, Infinity, '5'];
+
+  for (const [label, mutate, expectedPattern] of [
+    [
+      'record attachmentCount',
+      badValue => ({
+        ...manifest,
+        records: [{ ...manifest.records[0], attachmentCount: badValue }]
+      }),
+      /manifest\.records\[0\]\.attachmentCount/i
+    ],
+    [
+      'record attachmentBytes',
+      badValue => ({
+        ...manifest,
+        records: [{ ...manifest.records[0], attachmentBytes: badValue }]
+      }),
+      /manifest\.records\[0\]\.attachmentBytes/i
+    ],
+    [
+      'record size',
+      badValue => ({
+        ...manifest,
+        records: [{ ...manifest.records[0], size: badValue }]
+      }),
+      /manifest\.records\[0\]\.size/i
+    ],
+    [
+      'tombstone size',
+      badValue => ({
+        ...manifest,
+        tombstones: [{ ...manifest.tombstones[0], size: badValue }]
+      }),
+      /manifest\.tombstones\[0\]\.size/i
+    ],
+    [
+      'attachment size',
+      badValue => ({
+        ...manifest,
+        attachments: [{ ...manifest.attachments[0], size: badValue }]
+      }),
+      /manifest\.attachments\[0\]\.size/i
+    ],
+    [
+      'settings size',
+      badValue => ({
+        ...manifest,
+        settings: { ...manifest.settings, size: badValue }
+      }),
+      /manifest\.settings\.size/i
+    ]
+  ]) {
+    for (const badValue of invalidValues) {
+      assert.throws(
+        () => SyncCore.validateEnvelope({ protocol: 2, type: 'manifest', manifest: mutate(badValue) }, limits),
+        expectedPattern,
+        label + ':' + String(badValue)
+      );
+    }
+  }
+});
+
+test('applyMergePlan merges selected same tombstone vectors without creating visible records', async () => {
+  const sender = {
+    modules: {
+      todos: {
+        items: []
+      }
+    },
+    _sync: {
+      tombstones: [
+        makeTombstone({
+          id: 'todo-gone-1',
+          pathSegments: ['modules', 'todos', 'items'],
+          vector: { deviceA: 2 }
+        })
+      ]
+    }
+  };
+  const receiver = {
+    modules: {
+      todos: {
+        items: []
+      }
+    },
+    _sync: {
+      tombstones: [
+        makeTombstone({
+          id: 'todo-gone-1',
+          pathSegments: ['modules', 'todos', 'items'],
+          vector: { deviceB: 3 }
+        })
+      ]
+    }
+  };
+  const senderBefore = clone(sender);
+  const receiverBefore = clone(receiver);
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const sameOperation = plan.operations.find(item => item.category === 'same');
+
+  assert.ok(sameOperation);
+  assert.equal(sameOperation.selected, false);
+
+  const applied = await SyncCore.applyMergePlan(plan, receiver, {
+    selectedOperationIds: new Set([sameOperation.id])
+  });
+
+  assert.deepEqual(sender, senderBefore);
+  assert.deepEqual(receiver, receiverBefore);
+  assert.deepEqual(applied.modules.todos.items, []);
+  assert.equal(applied._sync.tombstones.length, 1);
+  assert.deepEqual(applied._sync.tombstones[0]._sync.vector, {
+    deviceA: 2,
+    deviceB: 3
+  });
+});
+
 test('hashBlob hashes Buffer, ArrayBuffer, and Blob when available', async () => {
   const bytes = Buffer.from('hello world', 'utf8');
   const expected = nodeCrypto.createHash('sha256').update(bytes).digest('hex');
