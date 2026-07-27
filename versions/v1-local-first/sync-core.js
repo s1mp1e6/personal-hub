@@ -21,11 +21,29 @@
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
+  function defineOwn(target, key, value) {
+    if (key === '__proto__') {
+      Object.defineProperty(target, key, {
+        value: value,
+        enumerable: true,
+        writable: true,
+        configurable: true
+      });
+      return;
+    }
+    target[key] = value;
+  }
+
+  function normalizeCounter(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : 0;
+  }
+
   function deepClone(value) {
     if (Array.isArray(value)) return value.map(deepClone);
     if (!isObject(value)) return value;
     const clone = {};
-    for (const key of Object.keys(value)) clone[key] = deepClone(value[key]);
+    for (const key of Object.keys(value)) defineOwn(clone, key, deepClone(value[key]));
     return clone;
   }
 
@@ -35,7 +53,7 @@
     const sorted = {};
     for (const key of Object.keys(value).sort()) {
       if (omitSync && key === '_sync') continue;
-      sorted[key] = stableValue(value[key], omitSync);
+      defineOwn(sorted, key, stableValue(value[key], omitSync));
     }
     return sorted;
   }
@@ -45,8 +63,8 @@
     for (const vector of arguments) {
       if (!isObject(vector)) continue;
       for (const key of Object.keys(vector)) {
-        const next = Number(vector[key]) || 0;
-        if (next > (merged[key] || 0)) merged[key] = next;
+        const next = normalizeCounter(vector[key]);
+        if (next > normalizeCounter(merged[key])) defineOwn(merged, key, next);
       }
     }
     return merged;
@@ -65,8 +83,8 @@
     let greater = false;
     let less = false;
     for (const key of keys) {
-      const leftValue = left[key] || 0;
-      const rightValue = right[key] || 0;
+      const leftValue = normalizeCounter(left[key]);
+      const rightValue = normalizeCounter(right[key]);
       if (leftValue > rightValue) greater = true;
       if (leftValue < rightValue) less = true;
     }
@@ -77,7 +95,7 @@
   }
 
   function vectorWeight(vector) {
-    return Object.values(isObject(vector) ? vector : {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+    return Object.values(isObject(vector) ? vector : {}).reduce((sum, value) => sum + normalizeCounter(value), 0);
   }
 
   function extractModuleId(path) {
@@ -85,11 +103,15 @@
   }
 
   function entityKey(path, parentId, id) {
-    return [path.join('.'), parentId || '', String(id)].join('::');
+    return JSON.stringify([path.join('.'), parentId == null ? null : String(parentId), String(id)]);
   }
 
   function tombstoneKey(record) {
-    return [(record.path || ''), record.parentId || '', String(record.id)].join('::');
+    return JSON.stringify([
+      record.path || '',
+      record.parentId == null ? null : String(record.parentId),
+      String(record.id)
+    ]);
   }
 
   function normalizeTombstone(record) {

@@ -86,6 +86,14 @@ test('compares dominating and concurrent vectors', () => {
   assert.equal(SyncCore.compareVectors({ a: 1 }, { a: 1 }), 'equal');
 });
 
+test('normalizes vector counters before comparing them', () => {
+  assert.equal(SyncCore.compareVectors({ a: '10' }, { a: '2' }), 'newer');
+  assert.equal(SyncCore.compareVectors({ a: '2' }, { a: '10' }), 'older');
+  assert.equal(SyncCore.compareVectors({ a: 'nope' }, { a: 1 }), 'older');
+  assert.equal(SyncCore.compareVectors({ a: -4 }, { a: 0 }), 'equal');
+  assert.equal(SyncCore.compareVectors({ a: Infinity, b: '3' }, { a: 0, b: 2 }), 'newer');
+});
+
 test('hashes deterministically while omitting nested _sync metadata in Node via node:crypto', async () => {
   const left = hashFixture;
   const right = {
@@ -161,6 +169,31 @@ test('migrates legacy records without changing visible fields or mutating input'
   assert.match(migrated.modules.todos.items[0]._sync.contentHash, /^[a-f0-9]{64}$/);
   assert.match(migrated.modules.experiments.items[0].logs[0]._sync.contentHash, /^[a-f0-9]{64}$/);
   assert.match(migrated.dashWidgets[0]._sync.contentHash, /^[a-f0-9]{64}$/);
+});
+
+test('preserves own __proto__ data without prototype pollution in hashes and migrated clones', async () => {
+  const left = JSON.parse('{"id":"proto-1","name":"alpha","__proto__":{"marker":"left"}}');
+  const right = JSON.parse('{"id":"proto-1","name":"alpha","__proto__":{"marker":"right"}}');
+  const state = {
+    modules: {
+      todos: {
+        items: [left]
+      }
+    }
+  };
+
+  const leftHash = await SyncCore.hashRecord(left);
+  const rightHash = await SyncCore.hashRecord(right);
+  const migrated = await SyncCore.migrateState(state);
+  const item = migrated.modules.todos.items[0];
+
+  assert.notEqual(leftHash, rightHash);
+  assert.equal(Object.prototype.marker, undefined);
+  assert.equal(({}).marker, undefined);
+  assert.equal(Object.hasOwn(item, '__proto__'), true);
+  assert.deepEqual(item.__proto__, { marker: 'left' });
+  assert.equal(Object.getPrototypeOf(item), Object.prototype);
+  assert.equal(Object.hasOwn(migrated.modules.todos.items[0]._sync, '__proto__'), false);
 });
 
 test('stamps changed, new, and unchanged records while merging top-level sync metadata', async () => {
@@ -339,4 +372,38 @@ test('tombstones are unique to the exact entity path and parent when ids repeat 
   assert.equal(stamped.modules.todos.items[0]._sync.vector['device-a'], 1);
   assert.equal(stamped.modules.experiments.items[1].logs[0]._sync.vector['device-a'], 1);
   assert.equal(stamped.modules.books.items[0].logs[0]._sync.vector['device-a'], 1);
+});
+
+test('identity keys stay distinct when ids contain separator-like content', async () => {
+  const seed = {
+    modules: {
+      experiments: {
+        items: [
+          {
+            id: 'p::q',
+            name: 'Parent One',
+            logs: [{ id: 'r', note: 'remove only this log' }]
+          },
+          {
+            id: 'p',
+            name: 'Parent Two',
+            logs: [{ id: 'q::r', note: 'same legacy separator shape but stays' }]
+          }
+        ]
+      }
+    }
+  };
+  const previous = await SyncCore.stampChanges(seed, {}, 'device-a');
+  const current = clone(previous);
+  current.modules.experiments.items[0].logs = [];
+
+  const stamped = await SyncCore.stampChanges(current, previous, 'device-a');
+  const matching = stamped._sync.tombstones.filter(item => item.path === 'modules.experiments.items.logs');
+
+  assert.deepEqual(
+    matching.map(item => [item.parentId, item.id]).sort(),
+    [['p::q', 'r']]
+  );
+  assert.equal(stamped.modules.experiments.items[1].logs[0]._sync.vector['device-a'], 1);
+  assert.equal(stamped.modules.experiments.items[1].logs[0].note, 'same legacy separator shape but stays');
 });
