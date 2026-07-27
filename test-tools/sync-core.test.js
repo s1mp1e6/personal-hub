@@ -461,6 +461,89 @@ test('applyMergePlan supports explicit selection for same-vector merges and pend
   assert.ok(!pendingDeleteRecord || pendingDeleteRecord._sync.deleted === true);
 });
 
+test('merge scope without attachments preserves receiver refs and never adds sender-only refs', async () => {
+  const receiverAttachment = {
+    fileId: 'receiver-file',
+    name: 'receiver.pdf',
+    type: 'application/pdf',
+    size: 80,
+    kind: 'doc'
+  };
+  const senderAttachment = {
+    fileId: 'sender-file',
+    name: 'sender.pdf',
+    type: 'application/pdf',
+    size: 120,
+    kind: 'doc'
+  };
+  const sender = {
+    modules: {
+      todos: {
+        items: [
+          {
+            id: 'todo-update',
+            txt: 'sender changed text',
+            done: true,
+            attachment: senderAttachment,
+            attType: 'doc',
+            _sync: { vector: { sender: 2 } }
+          },
+          {
+            id: 'todo-add',
+            txt: 'sender-only record',
+            done: false,
+            attachment: senderAttachment,
+            attType: 'doc',
+            _sync: { vector: { sender: 1 } }
+          }
+        ]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const receiver = {
+    modules: {
+      todos: {
+        items: [{
+          id: 'todo-update',
+          txt: 'receiver old text',
+          done: false,
+          attachment: receiverAttachment,
+          attType: 'doc',
+          _sync: { vector: { sender: 1 } }
+        }]
+      }
+    },
+    _sync: { tombstones: [] }
+  };
+  const senderBefore = clone(sender);
+  const receiverBefore = clone(receiver);
+
+  const plan = await SyncCore.buildMergePlan(sender, receiver, {
+    modules: ['todos'],
+    includeAttachments: false,
+    includeSettings: false
+  });
+  const applied = await SyncCore.applyMergePlan(plan, receiver);
+  const updated = applied.modules.todos.items.find(item => item.id === 'todo-update');
+  const added = applied.modules.todos.items.find(item => item.id === 'todo-add');
+
+  assert.deepEqual(sender, senderBefore);
+  assert.deepEqual(receiver, receiverBefore);
+  assert.equal(JSON.stringify(plan).includes('sender-file'), false);
+  assert.equal(plan.operations.find(item => item.identity.id === 'todo-update').category, 'update');
+  assert.equal(plan.operations.find(item => item.identity.id === 'todo-add').category, 'add');
+  assert.equal(updated.txt, 'sender changed text');
+  assert.equal(updated.done, true);
+  assert.deepEqual(updated.attachment, receiverAttachment);
+  assert.equal(updated.attType, 'doc');
+  assert.equal(added.txt, 'sender-only record');
+  assert.equal(added.done, false);
+  assert.equal('attachment' in added, false);
+  assert.equal('attType' in added, false);
+  assert.equal(JSON.stringify(applied).includes('sender-file'), false);
+});
+
 test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', async () => {
   const manifest = await SyncCore.buildManifest(
     {
@@ -579,6 +662,152 @@ test('validateEnvelope accepts valid manifests and rejects unsafe envelopes', as
   ]) {
     assert.throws(() => SyncCore.validateEnvelope(envelope, nextLimits), expectedPattern, name);
   }
+});
+
+test('validateEnvelope strictly validates every known non-manifest transfer envelope', () => {
+  const limits = {
+    allowedModules: new Set(['todos']),
+    maxManifestBytes: 10000,
+    maxEnvelopeBytes: 512,
+    maxAttachmentCount: 4,
+    maxAttachmentBytes: 1000,
+    maxChunkBytes: 32,
+    maxOperationCount: 4,
+    maxTransferBytes: 1000,
+    maxChunkCount: 8,
+    seenChunkIndexes: new Set()
+  };
+  const validEnvelopes = [
+    {
+      protocol: 2,
+      type: 'scope-offer',
+      scope: { modules: ['todos'], includeAttachments: false, includeSettings: false }
+    },
+    {
+      protocol: 2,
+      type: 'manifest-request',
+      scope: { modules: ['todos'], includeAttachments: false, includeSettings: false }
+    },
+    {
+      protocol: 2,
+      type: 'plan-selection',
+      operationIds: ['operation-1']
+    },
+    {
+      protocol: 2,
+      type: 'data-start',
+      transferId: 'transfer-1',
+      modules: ['todos'],
+      totalChunks: 2,
+      totalBytes: 120,
+      attachmentCount: 1,
+      attachmentBytes: 64
+    },
+    {
+      protocol: 2,
+      type: 'data-end',
+      transferId: 'transfer-1',
+      totalChunks: 2,
+      totalBytes: 120
+    },
+    {
+      protocol: 2,
+      type: 'commit-result',
+      transferId: 'transfer-1',
+      ok: true
+    },
+    {
+      protocol: 2,
+      type: 'abort',
+      reason: 'user-cancelled'
+    }
+  ];
+
+  for (const envelope of validEnvelopes) {
+    assert.equal(SyncCore.validateEnvelope(envelope, limits), true, envelope.type);
+    assert.throws(
+      () => SyncCore.validateEnvelope({ ...envelope, unexpected: true }, limits),
+      new RegExp(envelope.type + '.*unknown field', 'i'),
+      envelope.type + ' unknown field'
+    );
+  }
+
+  for (const type of ['scope-offer', 'manifest-request']) {
+    assert.throws(
+      () => SyncCore.validateEnvelope({
+        protocol: 2,
+        type,
+        scope: { modules: ['unknown'], includeAttachments: false, includeSettings: false }
+      }, limits),
+      /module/i,
+      type + ' module whitelist'
+    );
+    assert.throws(
+      () => SyncCore.validateEnvelope({
+        protocol: 2,
+        type,
+        scope: { modules: ['todos'], includeAttachments: false, includeSettings: false, extra: true }
+      }, limits),
+      /scope.*unknown field/i,
+      type + ' scope shape'
+    );
+  }
+
+  assert.throws(
+    () => SyncCore.validateEnvelope({ protocol: 2, type: 'plan-selection', operationIds: 'operation-1' }, limits),
+    /operationIds.*array/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope({
+      protocol: 2,
+      type: 'data-start',
+      transferId: 'transfer-1',
+      modules: ['unknown'],
+      totalChunks: 2,
+      totalBytes: 120,
+      attachmentCount: 0,
+      attachmentBytes: 0
+    }, limits),
+    /module/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope({
+      protocol: 2,
+      type: 'data-start',
+      transferId: 'transfer-1',
+      modules: ['todos'],
+      totalChunks: 9,
+      totalBytes: 120,
+      attachmentCount: 0,
+      attachmentBytes: 0
+    }, limits),
+    /totalChunks.*limit/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope({
+      protocol: 2,
+      type: 'data-end',
+      transferId: 'transfer-1',
+      totalChunks: 2,
+      totalBytes: '120'
+    }, limits),
+    /totalBytes.*integer/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope({ protocol: 2, type: 'commit-result', transferId: 'transfer-1', ok: 'yes' }, limits),
+    /ok.*boolean/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope({ protocol: 2, type: 'abort', reason: 'x'.repeat(600) }, limits),
+    /envelope bytes.*limit/i
+  );
+  assert.throws(
+    () => SyncCore.validateEnvelope(
+      JSON.parse('{"protocol":2,"type":"scope-offer","scope":{"modules":["todos"],"includeAttachments":false,"includeSettings":false,"__proto__":{"polluted":true}}}'),
+      limits
+    ),
+    /prototype/i
+  );
 });
 
 test('validateEnvelope rejects malformed manifest collections with field-specific errors', async () => {
@@ -1190,6 +1419,82 @@ test('applyMergePlan merges selected same tombstone vectors without creating vis
     deviceA: 2,
     deviceB: 3
   });
+});
+
+test('applyMergePlan batches large pending-delete tombstone updates with one final sort', async () => {
+  const count = 400;
+  const pathSegments = ['modules', 'todos', 'items'];
+  const receiver = {
+    modules: {
+      todos: {
+        items: Array.from({ length: count }, (_, index) => ({
+          id: 'delete-' + index,
+          txt: 'receiver-' + index,
+          _sync: { vector: { receiver: 1 } }
+        }))
+      }
+    },
+    _sync: {
+      tombstones: Array.from({ length: count }, (_, index) => makeTombstone({
+        id: 'existing-' + index,
+        pathSegments,
+        vector: { receiver: 1 }
+      }))
+    }
+  };
+  const operations = Array.from({ length: count }, (_, index) => {
+    const id = 'delete-' + index;
+    const tombstone = makeTombstone({ id, pathSegments, vector: { sender: 2 } });
+    return {
+      id: JSON.stringify([pathSegments, null, id]),
+      category: 'pendingDelete',
+      selected: true,
+      identity: { id, parentId: null, moduleId: 'todos', pathSegments },
+      sender: {
+        kind: 'tombstone',
+        meta: { id, parentId: null, moduleId: 'todos', pathSegments, vector: { sender: 2 }, deleted: true, size: 0 },
+        value: tombstone
+      },
+      receiver: null
+    };
+  });
+  const plan = {
+    operations,
+    summary: {
+      add: 0,
+      update: 0,
+      keep: 0,
+      conflictCopy: 0,
+      pendingDelete: count,
+      deleteConflict: 0,
+      same: 0
+    },
+    scope: { modules: ['todos'], includeAttachments: false, includeSettings: false }
+  };
+  const receiverBefore = clone(receiver);
+  const planBefore = clone(plan);
+  const originalSort = Array.prototype.sort;
+  let sortCalls = 0;
+  const startedAt = Date.now();
+  let applied;
+
+  Array.prototype.sort = function () {
+    sortCalls += 1;
+    return originalSort.apply(this, arguments);
+  };
+  try {
+    applied = await SyncCore.applyMergePlan(plan, receiver);
+  } finally {
+    Array.prototype.sort = originalSort;
+  }
+
+  assert.equal(sortCalls, 1);
+  assert.equal(applied.modules.todos.items.length, 0);
+  assert.equal(applied._sync.tombstones.length, count * 2);
+  assert.equal(new Set(applied._sync.tombstones.map(item => item.id)).size, count * 2);
+  assert.deepEqual(receiver, receiverBefore);
+  assert.deepEqual(plan, planBefore);
+  assert.ok(Date.now() - startedAt < 5000);
 });
 
 test('hashBlob hashes Buffer, ArrayBuffer, and Blob when available', async () => {

@@ -301,6 +301,52 @@
     return clone;
   }
 
+  function matchingArrayItem(items, value, index) {
+    if (!Array.isArray(items)) return undefined;
+    if (isObject(value) && value.id != null) {
+      return items.find(item => isObject(item) && item.id != null && String(item.id) === String(value.id));
+    }
+    return items[index];
+  }
+
+  function mergeWithoutAttachmentReferences(senderValue, receiverValue) {
+    if (isFileReference(senderValue)) {
+      return isFileReference(receiverValue) ? deepClone(receiverValue) : OMIT;
+    }
+    if (Array.isArray(senderValue)) {
+      const merged = [];
+      for (let index = 0; index < senderValue.length; index += 1) {
+        const next = mergeWithoutAttachmentReferences(
+          senderValue[index],
+          matchingArrayItem(receiverValue, senderValue[index], index)
+        );
+        if (next !== OMIT) merged.push(next);
+      }
+      return merged;
+    }
+    if (!isObject(senderValue)) return senderValue;
+
+    const receiverObject = isObject(receiverValue) ? receiverValue : null;
+    const merged = {};
+    for (const key of Object.keys(senderValue)) {
+      if (key === 'attType' && isFileReference(senderValue.attachment)) continue;
+      const next = mergeWithoutAttachmentReferences(
+        senderValue[key],
+        receiverObject ? receiverObject[key] : undefined
+      );
+      if (next !== OMIT) defineOwn(merged, key, next);
+    }
+    if (receiverObject) {
+      for (const key of Object.keys(receiverObject)) {
+        if (isFileReference(receiverObject[key])) defineOwn(merged, key, deepClone(receiverObject[key]));
+      }
+      if (isFileReference(receiverObject.attachment) && hasOwn(receiverObject, 'attType')) {
+        defineOwn(merged, 'attType', deepClone(receiverObject.attType));
+      }
+    }
+    return merged;
+  }
+
   function collectAttachmentMetadata(value, info, list) {
     if (Array.isArray(value)) {
       for (const item of value) collectAttachmentMetadata(item, info, list);
@@ -397,7 +443,9 @@
         attachmentCount: attachments.length,
         attachmentBytes: attachments.reduce((sum, item) => sum + normalizeSize(item.size), 0)
       },
-      value: deepClone(entity.node),
+      value: includeAttachments
+        ? deepClone(entity.node)
+        : mergeWithoutAttachmentReferences(entity.node, null),
       attachments: attachments
     };
   }
@@ -712,20 +760,6 @@
     return Array.isArray(current) ? current : null;
   }
 
-  function removeTombstoneByKey(tombstones, key) {
-    const index = tombstones.findIndex(item => tombstoneKey(normalizeTombstone(item)) === key);
-    if (index >= 0) tombstones.splice(index, 1);
-  }
-
-  function upsertRecordAtIdentity(state, identity, record) {
-    const collection = resolveCollection(state, identity.pathSegments, identity.parentId, true);
-    if (!collection) throw new Error('Unable to resolve collection path');
-    const index = collection.findIndex(item => isObject(item) && item.id != null && String(item.id) === String(identity.id));
-    if (index >= 0) collection[index] = deepClone(record);
-    else collection.push(deepClone(record));
-    return collection;
-  }
-
   function removeRecordAtIdentity(state, identity) {
     const collection = resolveCollection(state, identity.pathSegments, identity.parentId, false);
     if (!collection) return false;
@@ -773,8 +807,13 @@
     }
     const nextState = deepClone(receiverState || {});
     const tombstones = ensureRootSync(nextState);
+    const tombstoneMap = new Map(
+      tombstones.map(item => [tombstoneKey(normalizeTombstone(item)), normalizeTombstone(item)])
+    );
+    let tombstonesDirty = false;
     const selectedIds = normalizeSelectedOperationIds(options && options.selectedOperationIds);
     const idFactory = options && options.idFactory;
+    const includeAttachments = !plan.scope || plan.scope.includeAttachments !== false;
 
     for (const operation of plan.operations) {
       const applyOperation = selectedIds ? selectedIds.has(String(operation.id)) : operation.selected === true;
@@ -782,15 +821,28 @@
       const key = entityKey(operation.identity.pathSegments, operation.identity.parentId, operation.identity.id);
 
       if (operation.category === 'add' || operation.category === 'update') {
-        upsertRecordAtIdentity(nextState, operation.identity, operation.sender.value);
-        removeTombstoneByKey(tombstones, key);
+        const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, true);
+        if (!collection) throw new Error('Unable to resolve collection path');
+        const index = collection.findIndex(
+          item => isObject(item) && item.id != null && String(item.id) === String(operation.identity.id)
+        );
+        const receiverRecord = index >= 0 ? collection[index] : null;
+        const nextRecord = includeAttachments
+          ? deepClone(operation.sender.value)
+          : mergeWithoutAttachmentReferences(operation.sender.value, receiverRecord);
+        if (isObject(nextRecord._sync)) nextRecord._sync.contentHash = await hashRecord(nextRecord);
+        if (index >= 0) collection[index] = nextRecord;
+        else collection.push(nextRecord);
+        if (tombstoneMap.delete(key)) tombstonesDirty = true;
         continue;
       }
 
       if (operation.category === 'conflictCopy') {
         const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, true);
         if (!collection) throw new Error('Unable to resolve collection path');
-        const conflictCopy = deepClone(operation.sender.value);
+        const conflictCopy = includeAttachments
+          ? deepClone(operation.sender.value)
+          : mergeWithoutAttachmentReferences(operation.sender.value, null);
         conflictCopy.id = createCollisionFreeId(collection, operation.identity.id, idFactory);
         if (!isObject(conflictCopy._sync)) conflictCopy._sync = {};
         conflictCopy._sync.vector = mergeVectors(conflictCopy._sync.vector);
@@ -798,21 +850,14 @@
         conflictCopy._sync.conflictOf = operation.identity.id;
         conflictCopy._sync.contentHash = await hashRecord(conflictCopy);
         collection.push(conflictCopy);
-        removeTombstoneByKey(tombstones, key);
+        if (tombstoneMap.delete(key)) tombstonesDirty = true;
         continue;
       }
 
       if (operation.category === 'pendingDelete') {
         removeRecordAtIdentity(nextState, operation.identity);
-        const tombstoneMap = new Map(
-          tombstones.map(item => [tombstoneKey(normalizeTombstone(item)), normalizeTombstone(item)])
-        );
         upsertTombstone(tombstoneMap, operation.sender.value);
-        tombstones.splice(
-          0,
-          tombstones.length,
-          ...Array.from(tombstoneMap.values()).sort((left, right) => tombstoneKey(left).localeCompare(tombstoneKey(right)))
-        );
+        tombstonesDirty = true;
         continue;
       }
 
@@ -834,15 +879,8 @@
             receiverTombstone && receiverTombstone._sync ? receiverTombstone._sync.vector : null,
             senderTombstone && senderTombstone._sync ? senderTombstone._sync.vector : null
           );
-          const tombstoneMap = new Map(
-            tombstones.map(item => [tombstoneKey(normalizeTombstone(item)), normalizeTombstone(item)])
-          );
           tombstoneMap.set(tombstoneKey(mergedTombstone), mergedTombstone);
-          tombstones.splice(
-            0,
-            tombstones.length,
-            ...Array.from(tombstoneMap.values()).sort((left, right) => tombstoneKey(left).localeCompare(tombstoneKey(right)))
-          );
+          tombstonesDirty = true;
           continue;
         }
         const collection = resolveCollection(nextState, operation.identity.pathSegments, operation.identity.parentId, false);
@@ -859,6 +897,14 @@
         if (!hasOwn(record._sync, 'conflictOf')) record._sync.conflictOf = null;
         if (record._sync.contentHash == null) record._sync.contentHash = await hashRecord(record);
       }
+    }
+
+    if (tombstonesDirty) {
+      tombstones.splice(
+        0,
+        tombstones.length,
+        ...Array.from(tombstoneMap.values()).sort((left, right) => tombstoneKey(left).localeCompare(tombstoneKey(right)))
+      );
     }
 
     return nextState;
@@ -923,6 +969,45 @@
       requireNonEmptyString(value[index], label + '[' + index + ']');
     }
     return value;
+  }
+
+  function requireBoolean(value, label) {
+    if (typeof value !== 'boolean') throw new Error(label + ' must be a boolean');
+    return value;
+  }
+
+  function requireExactFields(value, allowedFields, requiredFields, label) {
+    if (!isPlainObject(value)) throw new Error(label + ' must be a plain object');
+    const allowed = new Set(allowedFields);
+    for (const field of requiredFields) {
+      if (!hasOwn(value, field)) throw new Error(label + '.' + field + ' is required');
+    }
+    for (const field of Object.keys(value)) {
+      if (!allowed.has(field)) throw new Error(label + ' contains unknown field: ' + field);
+    }
+  }
+
+  function optionalIntegerLimit(limits, key, fallback) {
+    if (!hasOwn(limits, key)) return fallback;
+    return requireSafeNonNegativeInteger(limits[key], 'limits.' + key);
+  }
+
+  function validateEnvelopeModules(value, allowedModules, label) {
+    if (!Array.isArray(value)) throw new Error(label + ' must be an array');
+    assertModuleIdsAllowed(value, allowedModules, label);
+    return value;
+  }
+
+  function validateScopePayload(scope, allowedModules) {
+    requireExactFields(
+      scope,
+      ['modules', 'includeAttachments', 'includeSettings'],
+      ['modules', 'includeAttachments', 'includeSettings'],
+      'scope'
+    );
+    validateEnvelopeModules(scope.modules, allowedModules, 'scope.modules');
+    requireBoolean(scope.includeAttachments, 'scope.includeAttachments');
+    requireBoolean(scope.includeSettings, 'scope.includeSettings');
   }
 
   function requireScopeModuleId(moduleId, scopeModules, allowedModules, label) {
@@ -1039,6 +1124,99 @@
     if (seenChunkIndexes.has(index)) throw new Error('duplicate chunk index');
   }
 
+  function validateTransferCounts(envelope, limits, includeAttachments) {
+    const maxChunkCount = optionalIntegerLimit(limits, 'maxChunkCount', Number.MAX_SAFE_INTEGER);
+    const maxTransferBytes = optionalIntegerLimit(limits, 'maxTransferBytes', Number.MAX_SAFE_INTEGER);
+    const totalChunks = requireSafeNonNegativeInteger(envelope.totalChunks, envelope.type + '.totalChunks');
+    const totalBytes = requireSafeNonNegativeInteger(envelope.totalBytes, envelope.type + '.totalBytes');
+    if (totalChunks === 0 || totalChunks > maxChunkCount) {
+      throw new Error(envelope.type + '.totalChunks exceeds limit');
+    }
+    if (totalBytes > maxTransferBytes) throw new Error(envelope.type + '.totalBytes exceeds limit');
+    if (!includeAttachments) return;
+
+    const attachmentCount = requireSafeNonNegativeInteger(
+      envelope.attachmentCount,
+      envelope.type + '.attachmentCount'
+    );
+    const attachmentBytes = requireSafeNonNegativeInteger(
+      envelope.attachmentBytes,
+      envelope.type + '.attachmentBytes'
+    );
+    if (attachmentCount > requireSafeNonNegativeInteger(limits.maxAttachmentCount, 'max attachment count')) {
+      throw new Error(envelope.type + '.attachmentCount exceeds limit');
+    }
+    if (attachmentBytes > requireSafeNonNegativeInteger(limits.maxAttachmentBytes, 'max attachment bytes')) {
+      throw new Error(envelope.type + '.attachmentBytes exceeds limit');
+    }
+  }
+
+  function validateControlEnvelope(envelope, limits) {
+    const allowedModules = limits.allowedModules instanceof Set
+      ? limits.allowedModules
+      : new Set(Array.isArray(limits.allowedModules) ? limits.allowedModules : []);
+
+    if (envelope.type === 'scope-offer' || envelope.type === 'manifest-request') {
+      requireExactFields(envelope, ['protocol', 'type', 'scope'], ['protocol', 'type', 'scope'], envelope.type);
+      validateScopePayload(envelope.scope, allowedModules);
+    } else if (envelope.type === 'plan-selection') {
+      requireExactFields(
+        envelope,
+        ['protocol', 'type', 'operationIds'],
+        ['protocol', 'type', 'operationIds'],
+        envelope.type
+      );
+      const operationIds = requireArrayField(envelope, 'operationIds', 'operationIds');
+      if (operationIds.length > optionalIntegerLimit(limits, 'maxOperationCount', Number.MAX_SAFE_INTEGER)) {
+        throw new Error('plan-selection.operationIds exceeds limit');
+      }
+      const seen = new Set();
+      for (let index = 0; index < operationIds.length; index += 1) {
+        const operationId = requireNonEmptyString(operationIds[index], 'operationIds[' + index + ']');
+        if (seen.has(operationId)) throw new Error('operationIds contains duplicate values');
+        seen.add(operationId);
+      }
+    } else if (envelope.type === 'data-start') {
+      requireExactFields(
+        envelope,
+        ['protocol', 'type', 'transferId', 'modules', 'totalChunks', 'totalBytes', 'attachmentCount', 'attachmentBytes'],
+        ['protocol', 'type', 'transferId', 'modules', 'totalChunks', 'totalBytes', 'attachmentCount', 'attachmentBytes'],
+        envelope.type
+      );
+      requireNonEmptyString(envelope.transferId, 'data-start.transferId');
+      validateEnvelopeModules(envelope.modules, allowedModules, 'data-start.modules');
+      validateTransferCounts(envelope, limits, true);
+    } else if (envelope.type === 'data-end') {
+      requireExactFields(
+        envelope,
+        ['protocol', 'type', 'transferId', 'totalChunks', 'totalBytes'],
+        ['protocol', 'type', 'transferId', 'totalChunks', 'totalBytes'],
+        envelope.type
+      );
+      requireNonEmptyString(envelope.transferId, 'data-end.transferId');
+      validateTransferCounts(envelope, limits, false);
+    } else if (envelope.type === 'commit-result') {
+      requireExactFields(
+        envelope,
+        ['protocol', 'type', 'transferId', 'ok'],
+        ['protocol', 'type', 'transferId', 'ok'],
+        envelope.type
+      );
+      requireNonEmptyString(envelope.transferId, 'commit-result.transferId');
+      requireBoolean(envelope.ok, 'commit-result.ok');
+    } else if (envelope.type === 'abort') {
+      requireExactFields(envelope, ['protocol', 'type', 'reason'], ['protocol', 'type', 'reason'], envelope.type);
+      requireNonEmptyString(envelope.reason, 'abort.reason');
+    }
+
+    const maxEnvelopeBytes = optionalIntegerLimit(
+      limits,
+      'maxEnvelopeBytes',
+      requireSafeNonNegativeInteger(limits.maxManifestBytes, 'max manifest bytes')
+    );
+    if (serializedSize(envelope) > maxEnvelopeBytes) throw new Error('envelope bytes exceed limit');
+  }
+
   function validateEnvelope(envelope, limits) {
     if (!isPlainObject(envelope)) throw new Error('envelope must be a plain object');
     assertSafeEnvelopeGraph(envelope, 'envelope');
@@ -1047,7 +1225,8 @@
     if (!isObject(limits)) throw new TypeError('limits must be a plain object');
 
     if (envelope.type === 'manifest') validateManifestPayload(envelope.manifest, limits);
-    if (envelope.type === 'data-chunk') validateChunkPayload(envelope, limits);
+    else if (envelope.type === 'data-chunk') validateChunkPayload(envelope, limits);
+    else validateControlEnvelope(envelope, limits);
     return true;
   }
 
