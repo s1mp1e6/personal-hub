@@ -407,3 +407,52 @@ test('identity keys stay distinct when ids contain separator-like content', asyn
   assert.equal(stamped.modules.experiments.items[1].logs[0]._sync.vector['device-a'], 1);
   assert.equal(stamped.modules.experiments.items[1].logs[0].note, 'same legacy separator shape but stays');
 });
+
+test('identity keys stay distinct when path segments contain dots', async () => {
+  const seed = {
+    'a.b': {
+      c: [{ id: 'same-id', note: 'remove only dotted parent branch' }]
+    },
+    a: {
+      'b.c': [{ id: 'same-id', note: 'same joined display path but stays' }]
+    }
+  };
+  const previous = await SyncCore.stampChanges(seed, {}, 'device-a');
+  const current = clone(previous);
+  current['a.b'].c = [];
+
+  const stamped = await SyncCore.stampChanges(current, previous, 'device-a');
+  const repeatedIdTombstones = stamped._sync.tombstones.filter(item => item.id === 'same-id');
+
+  assert.equal(repeatedIdTombstones.length, 1);
+  assert.deepEqual(repeatedIdTombstones[0].pathSegments, ['a.b', 'c']);
+  assert.equal(repeatedIdTombstones[0].path, 'a.b.c');
+  assert.equal(stamped.a['b.c'][0].note, 'same joined display path but stays');
+  assert.equal(stamped.a['b.c'][0]._sync.vector['device-a'], 1);
+});
+
+test('supports non-empty device ids including __proto__ as own vector keys', async () => {
+  const stamped = await SyncCore.stampChanges({
+    modules: {
+      todos: {
+        items: [{ id: 'todo-1', txt: 'keep me' }]
+      }
+    }
+  }, {}, '__proto__');
+  const vector = stamped.modules.todos.items[0]._sync.vector;
+
+  assert.equal(Object.hasOwn(vector, '__proto__'), true);
+  assert.equal(Object.getOwnPropertyDescriptor(vector, '__proto__').value, 1);
+  assert.equal(Object.getPrototypeOf(vector), Object.prototype);
+});
+
+test('throws TypeError for missing or empty device ids', async () => {
+  await assert.rejects(
+    () => SyncCore.stampChanges({ modules: { todos: { items: [{ id: 'todo-1' }] } } }, {}, ''),
+    TypeError
+  );
+  await assert.rejects(
+    () => SyncCore.stampChanges({ modules: { todos: { items: [{ id: 'todo-1' }] } } }, {}, null),
+    TypeError
+  );
+});

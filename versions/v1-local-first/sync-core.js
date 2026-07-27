@@ -21,6 +21,10 @@
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
+  function hasOwn(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
   function defineOwn(target, key, value) {
     if (key === '__proto__') {
       Object.defineProperty(target, key, {
@@ -37,6 +41,12 @@
   function normalizeCounter(value) {
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : 0;
+  }
+
+  function assertDeviceId(deviceId) {
+    if (typeof deviceId !== 'string' || deviceId === '') {
+      throw new TypeError('deviceId must be a non-empty string');
+    }
   }
 
   function deepClone(value) {
@@ -71,8 +81,9 @@
   }
 
   function bumpVector(vector, deviceId) {
+    assertDeviceId(deviceId);
     const next = mergeVectors(vector);
-    next[deviceId] = (next[deviceId] || 0) + 1;
+    defineOwn(next, deviceId, normalizeCounter(hasOwn(next, deviceId) ? next[deviceId] : 0) + 1);
     return next;
   }
 
@@ -103,12 +114,23 @@
   }
 
   function entityKey(path, parentId, id) {
-    return JSON.stringify([path.join('.'), parentId == null ? null : String(parentId), String(id)]);
+    return JSON.stringify([path, parentId == null ? null : String(parentId), String(id)]);
+  }
+
+  function toPathString(path) {
+    return path.join('.');
+  }
+
+  function normalizePathSegments(record) {
+    if (Array.isArray(record && record.pathSegments)) return deepClone(record.pathSegments);
+    if (Array.isArray(record && record.path)) return deepClone(record.path);
+    if (record && typeof record.path === 'string') return record.path.split('.');
+    return [];
   }
 
   function tombstoneKey(record) {
     return JSON.stringify([
-      record.path || '',
+      normalizePathSegments(record),
       record.parentId == null ? null : String(record.parentId),
       String(record.id)
     ]);
@@ -116,9 +138,11 @@
 
   function normalizeTombstone(record) {
     const sync = isObject(record && record._sync) ? record._sync : {};
+    const pathSegments = normalizePathSegments(record);
     return {
       id: record ? record.id : undefined,
-      path: record && record.path ? record.path : '',
+      path: record && typeof record.path === 'string' ? record.path : toPathString(pathSegments),
+      pathSegments: pathSegments,
       moduleId: record && record.moduleId != null ? record.moduleId : null,
       parentId: record && record.parentId != null ? record.parentId : null,
       _sync: {
@@ -152,12 +176,13 @@
       return list;
     }
     if (!isObject(node)) return list;
-    const hasId = Object.prototype.hasOwnProperty.call(node, 'id') && node.id != null;
+    const hasId = hasOwn(node, 'id') && node.id != null;
     const nextParentId = hasId ? node.id : parentId;
     if (hasId) {
       list.push({
         id: node.id,
-        path: path.join('.'),
+        path: toPathString(path),
+        pathSegments: deepClone(path),
         moduleId: extractModuleId(path),
         parentId: parentId == null ? null : parentId,
         key: entityKey(path, parentId, node.id),
@@ -208,6 +233,7 @@
   }
 
   async function stampChanges(current, previous, deviceId) {
+    assertDeviceId(deviceId);
     const nextState = await migrateState(current || {});
     const previousState = await migrateState(previous || {});
     const nextEntities = collectEntities(nextState, [], null, []);
@@ -254,6 +280,7 @@
       upsertTombstone(tombstoneMap, {
         id: entity.id,
         path: entity.path,
+        pathSegments: entity.pathSegments,
         moduleId: entity.moduleId,
         parentId: entity.parentId,
         _sync: {
