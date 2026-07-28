@@ -74,6 +74,9 @@ async function testDesktop(baseUrl, browser) {
   await page.getByText('备份位置').waitFor();
   await page.getByText('网页不能静默写入任意默认路径').waitFor();
   await page.getByLabel('打开近距离设备同步').click();
+  const offlinePairing = page.locator('details:has(summary:text-is("离线配对"))');
+  if (await offlinePairing.getAttribute('open') !== null) throw new Error('desktop: offline pairing should be collapsed by default');
+  await offlinePairing.locator('summary').click();
   await page.locator('#syncLocal').waitFor();
   await page.locator('.modal .x').click();
   await page.getByTitle('查看本机数据说明').click();
