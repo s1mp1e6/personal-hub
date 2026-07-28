@@ -9,8 +9,10 @@ const DB_NAME = 'personal_hub_local_first';
 const STATE_KEY = 'personal_hub_v6';
 const DEVICE_ID_KEY = 'deviceId';
 const FILE_ID = 'legacy-file-1';
+const CONCURRENT_FILE_ID = 'concurrent-file-2';
 const MARKER = 'legacy-storage-marker';
 const FILE_BYTES = 'legacy attachment bytes';
+const CONCURRENT_FILE_BYTES = 'concurrent attachment bytes';
 
 const legacyFixture = {
   activeQuote: 0,
@@ -58,7 +60,7 @@ function serveFile(req, res) {
 }
 
 async function seedLegacyDatabase(page) {
-  await page.evaluate(async ({ dbName, stateKey, fixture, fileId, fileBytes }) => {
+  await page.evaluate(async ({ dbName, stateKey, fixture, fileId, fileBytes, concurrentFileId, concurrentFileBytes }) => {
     await new Promise((resolve, reject) => {
       const request = indexedDB.deleteDatabase(dbName);
       request.onsuccess = resolve;
@@ -85,6 +87,15 @@ async function seedLegacyDatabase(page) {
           createdAt: '2026-07-28T00:00:00.000Z',
           blob: new Blob([fileBytes], { type: 'text/plain' })
         });
+        tx.objectStore('files').put({
+          id: concurrentFileId,
+          name: 'concurrent.txt',
+          type: 'text/plain',
+          size: concurrentFileBytes.length,
+          kind: 'doc',
+          createdAt: '2026-07-28T00:01:00.000Z',
+          blob: new Blob([concurrentFileBytes], { type: 'text/plain' })
+        });
         tx.oncomplete = () => {
           db.close();
           resolve();
@@ -92,7 +103,15 @@ async function seedLegacyDatabase(page) {
         tx.onerror = () => reject(tx.error);
       };
     });
-  }, { dbName: DB_NAME, stateKey: STATE_KEY, fixture: legacyFixture, fileId: FILE_ID, fileBytes: FILE_BYTES });
+  }, {
+    dbName: DB_NAME,
+    stateKey: STATE_KEY,
+    fixture: legacyFixture,
+    fileId: FILE_ID,
+    fileBytes: FILE_BYTES,
+    concurrentFileId: CONCURRENT_FILE_ID,
+    concurrentFileBytes: CONCURRENT_FILE_BYTES
+  });
 }
 
 async function inspectDatabase(page) {
@@ -170,7 +189,7 @@ async function main() {
       sync: 'object', recovery: 'object'
     });
 
-    await page.evaluate(() => saveNow());
+    const savedSnapshot = await page.evaluate(() => saveNow());
     const afterUpgrade = await inspectDatabase(page);
     assert.equal(afterUpgrade.version, 3);
     assert.ok(afterUpgrade.stores.includes('recovery'), 'recovery store is missing');
@@ -186,10 +205,59 @@ async function main() {
       text: FILE_BYTES
     });
     assert.match(afterUpgrade.deviceId, /^[a-f0-9]{32}$/);
+    assert.deepEqual(savedSnapshot, afterUpgrade.state, 'saveNow did not return the persisted stamped snapshot');
 
     await page.evaluate(() => saveNow());
     const afterRepeatedSave = await inspectDatabase(page);
     assert.deepEqual(afterRepeatedSave.state, afterUpgrade.state, 'unchanged save incremented sync metadata');
+
+    const concurrentBackup = await page.evaluate(async ({ concurrentFileId, concurrentFileBytes }) => {
+      const originalIdbSet = idbSet;
+      let releaseWrite;
+      let signalWriteStarted;
+      const writeStarted = new Promise(resolve => { signalWriteStarted = resolve; });
+      let gated = false;
+      idbSet = async (key, value) => {
+        if(key === KEY && !gated){
+          gated = true;
+          signalWriteStarted();
+          await new Promise(resolve => { releaseWrite = resolve; });
+        }
+        return originalIdbSet(key, value);
+      };
+      try {
+        const backupPromise = buildBackup();
+        await writeStarted;
+        const todo = state.modules.todos.items[0];
+        todo.txt = 'concurrent edit after snapshot';
+        todo.attachment = {
+          fileId: concurrentFileId,
+          name: 'concurrent.txt',
+          type: 'text/plain',
+          size: concurrentFileBytes.length,
+          kind: 'doc'
+        };
+        stateRevision++;
+        releaseWrite();
+        const backup = await backupPromise;
+        const persisted = await idbGet(KEY);
+        return {
+          backupData: backup.data,
+          backupFileIds: backup.files.map(file => file.id),
+          persisted,
+          currentText: state.modules.todos.items[0].txt,
+          currentFileId: state.modules.todos.items[0].attachment.fileId
+        };
+      } finally {
+        idbSet = originalIdbSet;
+      }
+    }, { concurrentFileId: CONCURRENT_FILE_ID, concurrentFileBytes: CONCURRENT_FILE_BYTES });
+    assert.equal(concurrentBackup.currentText, 'concurrent edit after snapshot');
+    assert.equal(concurrentBackup.currentFileId, CONCURRENT_FILE_ID);
+    assert.deepEqual(concurrentBackup.backupData, concurrentBackup.persisted,
+      'backup read global state changed after saveNow captured its snapshot');
+    assert.deepEqual(concurrentBackup.backupFileIds, [FILE_ID],
+      'backup attachments did not come from the persisted snapshot');
 
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(marker => JSON.stringify(state).includes(marker), MARKER);
@@ -197,6 +265,29 @@ async function main() {
     assert.deepEqual(visible(afterReload.state), visible(legacyFixture));
     assert.equal(afterReload.deviceId, afterUpgrade.deviceId, 'deviceId changed after reload');
     assert.deepEqual(afterReload.file, afterUpgrade.file);
+
+    const failedWrite = await page.evaluate(async () => {
+      const originalIdbSet = idbSet;
+      const shadowBefore = JSON.stringify(persistedShadow);
+      idbSet = async (key, value) => {
+        if(key === KEY)throw new Error('forced state write failure');
+        return originalIdbSet(key, value);
+      };
+      let returned = false;
+      let message = '';
+      try {
+        await saveNow();
+        returned = true;
+      } catch (error) {
+        message = error.message;
+      } finally {
+        idbSet = originalIdbSet;
+      }
+      return { returned, message, shadowBefore, shadowAfter: JSON.stringify(persistedShadow) };
+    });
+    assert.equal(failedWrite.returned, false, 'failed save returned a successful snapshot');
+    assert.equal(failedWrite.message, 'forced state write failure');
+    assert.equal(failedWrite.shadowAfter, failedWrite.shadowBefore, 'failed save updated persistedShadow');
     assert.deepEqual(consoleErrors, []);
 
     console.log(JSON.stringify({
@@ -204,7 +295,9 @@ async function main() {
       stores: afterReload.stores,
       attachmentPreserved: true,
       stableDeviceId: true,
-      repeatedSaveStable: true
+      repeatedSaveStable: true,
+      concurrentBackupStable: true,
+      failedWriteSafe: true
     }, null, 2));
     await context.close();
   } finally {

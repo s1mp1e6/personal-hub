@@ -676,7 +676,7 @@ function saveNow(){
     await idbSet(KEY,stamped);
     persistedShadow=cloneState(stamped);
     if(stateRevision===revision)state=stamped;
-    return stamped;
+    return cloneState(stamped);
   };
   saveChain=saveChain.then(persist,persist).catch(e=>{console.warn('IndexedDB 保存失败:',e);throw e});
   return saveChain;
@@ -1539,11 +1539,11 @@ function collectFileRefs(obj,set=new Set()){if(!obj||typeof obj!=='object')retur
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(blob)})}
 function dataUrlToBlob(dataUrl){const [head,body]=dataUrl.split(',');const mime=(head.match(/data:(.*?);/)||[])[1]||'application/octet-stream';const bin=atob(body);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type:mime})}
 async function buildBackup(){
-  await saveNow();
-  const ids=[...collectFileRefs(state)];
+  const persisted=await saveNow();
+  const ids=[...collectFileRefs(persisted)];
   const files=[];
   for(const id of ids){const rec=await idbStoreGet(FILE_STORE,id);if(rec&&rec.blob)files.push({id:rec.id,name:rec.name,type:rec.type,size:rec.size,kind:rec.kind,createdAt:rec.createdAt,dataUrl:await blobToDataUrl(rec.blob)})}
-  return {app:'personal-hub',version:'v1-local-first',exportedAt:new Date().toISOString(),data:state,files};
+  return {app:'personal-hub',version:'v1-local-first',exportedAt:new Date().toISOString(),data:persisted,files};
 }
 async function buildBackupText(){return JSON.stringify(await buildBackup(),null,2)}
 async function restoreBackupFiles(files){if(!files||!files.length)return;for(const f of files){await idbStorePut(FILE_STORE,{id:f.id,name:f.name,type:f.type,size:f.size,kind:f.kind,createdAt:f.createdAt,blob:dataUrlToBlob(f.dataUrl)})}}
