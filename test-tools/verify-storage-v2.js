@@ -362,34 +362,40 @@ async function main() {
 
     const rapidMarker='rapid mutation before navigation';
     const rapidPage=await context.newPage();
-    const rapidPageErrors=[];
-    rapidPage.on('pageerror',error=>rapidPageErrors.push(error.message));
     await rapidPage.goto(`${url}/index.html?rapid-save=1`,{waitUntil:'networkidle'});
     await rapidPage.waitForFunction(() => hydrated);
     await rapidPage.evaluate(marker=>{
-      const originalCompareAndSetState=compareAndSetState;
-      window.__rapidSaveStarted=false;
-      compareAndSetState=async(...args)=>{
-        window.__rapidSaveStarted=true;
-        return originalCompareAndSetState(...args);
-      };
+      compareAndSetState=async()=>new Promise(()=>{});
       state.modules.todos.items[0].txt=marker;
       save();
     },rapidMarker);
-    await rapidPage.waitForFunction(()=>window.__rapidSaveStarted===true,null,{timeout:120});
-    await rapidPage.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
-    await rapidPage.waitForTimeout(20);
     await rapidPage.goto('about:blank');
-    let rapidPersisted=null;
-    const rapidDeadline=Date.now()+3000;
-    while(Date.now()<rapidDeadline){
-      rapidPersisted=await inspectDatabase(page);
-      if(rapidPersisted.state.modules.todos.items[0].txt===rapidMarker)break;
-      await new Promise(resolve=>setTimeout(resolve,50));
-    }
-    assert.equal(rapidPersisted.state.modules.todos.items[0].txt,rapidMarker,
-      'rapid mutation was lost during immediate navigation');
-    assert.deepEqual(rapidPageErrors,[],'rapid navigation raised a page error');
+    await rapidPage.goto(`${url}/index.html?rapid-save-reload=1`,{waitUntil:'networkidle'});
+    await rapidPage.waitForFunction(marker => hydrated && JSON.stringify(state).includes(marker),rapidMarker,{timeout:5000});
+    const rapidRecovery=await rapidPage.evaluate(({marker,key})=>({
+      text:state.modules.todos.items[0].txt,
+      journal:localStorage.getItem(key)
+    }),{marker:rapidMarker,key:'personal_hub_pending_state'});
+    assert.equal(rapidRecovery.text,rapidMarker,'pending journal did not recover the last state');
+    assert.equal(rapidRecovery.journal,null,'pending journal was not removed after recovery save');
+
+    const quotaFallback=await rapidPage.evaluate(async()=>{
+      const originalSetItem=Storage.prototype.setItem;
+      const quotaMarker='journal quota fallback';
+      Storage.prototype.setItem=function(key,value){
+        if(key==='personal_hub_pending_state')throw new Error('forced quota failure');
+        return originalSetItem.call(this,key,value);
+      };
+      try{
+        state.modules.todos.items[0].txt=quotaMarker;
+        stateRevision++;
+        save();
+        await saveNow();
+        return {persisted:(await idbGet(KEY)).modules.todos.items[0].txt};
+      }finally{Storage.prototype.setItem=originalSetItem}
+    });
+    assert.equal(quotaFallback.persisted,'journal quota fallback',
+      'journal quota failure blocked the IndexedDB save');
     assert.deepEqual(consoleErrors, []);
 
     console.log(JSON.stringify({
@@ -402,8 +408,9 @@ async function main() {
       concurrentBackupStable: true,
       staleWriterRejected: true,
       failedWriteSafe: true,
-      boundaryFailuresHandled: true,
-      rapidNavigationSaved: true
+       boundaryFailuresHandled: true,
+       rapidNavigationSaved: true,
+       journalQuotaFallback: true
     }, null, 2));
     await context.close();
   } finally {

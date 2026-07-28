@@ -508,6 +508,7 @@ const SYNC_META_STORE='sync-meta';
 const DEVICE_ID_KEY='deviceId';
 const STATE_REVISION_KEY='stateRevision';
 const STATE_WRITE_LOCK='personal-hub-state-write';
+const PENDING_JOURNAL_KEY='personal_hub_pending_state';
 let state=loadDefaultState();
 let currentMod='dashboard',detailId=null,editingId=null,inputMode='text',pendingAttach=null,pendingAttachType=null,pendingAttachPreview=null,searchQuery='',showArchived=false;
 let hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};
@@ -642,6 +643,25 @@ function createDeviceId(){const bytes=new Uint8Array(16);crypto.getRandomValues(
 function normalizeStateMeta(value){return value&&Number.isSafeInteger(value.revision)&&value.revision>=0&&typeof value.token==='string'&&value.token?{revision:value.revision,token:value.token}:{revision:0,token:null}}
 function sameStateMeta(left,right){return left.revision===right.revision&&left.token===right.token}
 function createStateToken(){return createDeviceId()}
+function visibleStateJson(value){return JSON.stringify(value,(key,item)=>key==='_sync'?undefined:item)}
+function readPendingJournal(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(PENDING_JOURNAL_KEY)||'null');
+    if(!parsed||parsed.version!==1||!parsed.state||!parsed.state.modules)return null;
+    return {baseMeta:normalizeStateMeta(parsed.baseMeta),state:parsed.state};
+  }catch(error){console.warn('待提交本地日志读取失败:',error);return null}
+}
+function writePendingJournal(){
+  try{
+    localStorage.setItem(PENDING_JOURNAL_KEY,JSON.stringify({version:1,baseMeta:persistedStateMeta,state:cloneState(state)}));
+  }catch(error){console.warn('待提交本地日志写入失败，继续使用 IndexedDB:',error)}
+}
+function clearPendingJournalIfMatches(snapshot,baseMeta){
+  try{
+    const pending=readPendingJournal();
+    if(pending&&sameStateMeta(pending.baseMeta,baseMeta)&&visibleStateJson(pending.state)===visibleStateJson(snapshot))localStorage.removeItem(PENDING_JOURNAL_KEY);
+  }catch(error){console.warn('待提交本地日志清理失败:',error)}
+}
 async function loadDeviceId(){
   const db=await openDb();
   return new Promise((resolve,reject)=>{
@@ -695,15 +715,21 @@ function staleStateError(){
 }
 function withStateWriteLock(task){return navigator.locks&&navigator.locks.request?navigator.locks.request(STATE_WRITE_LOCK,{mode:'exclusive'},task):task()}
 async function hydrateState(){
-  let migratedLegacy=false,themeChanged=false;
+  let migratedLegacy=false,themeChanged=false,pendingRecovery=false;
   try{
     const persisted=await readPersistedState();
     const saved=persisted.state;
     persistedStateMeta=persisted.meta;
+    const pending=readPendingJournal();
     if(saved&&saved.modules){state=saved}
     else{
       const old=JSON.parse(localStorage.getItem(KEY)||'null');
       if(old&&old.modules){state=old;migratedLegacy=true}
+    }
+    if(pending){
+      if(sameStateMeta(pending.baseMeta,persistedStateMeta)){state=pending.state;pendingRecovery=true}
+      else if(!saved||visibleStateJson(pending.state)===visibleStateJson(saved))localStorage.removeItem(PENDING_JOURNAL_KEY);
+      else{console.warn('发现过期待提交本地日志，保留 IndexedDB 数据');localStorage.removeItem(PENDING_JOURNAL_KEY)}
     }
     state=await SyncCore.migrateState(state);
     deviceId=await loadDeviceId();
@@ -715,6 +741,7 @@ async function hydrateState(){
   if(!persistedShadow){state=await SyncCore.migrateState(state);persistedShadow=cloneState(state)}
   if(state.settings&&state.settings.theme==='warm'&&!state.settings.themeExplicit){state.settings.theme='default';themeChanged=true}
   hydrated=true;
+  if(pendingRecovery){try{await saveNow()}catch(error){reportBackgroundSaveError(error)}}
   applyTheme();renderNav();renderContent();updateStorageInfo();
   if(themeChanged)save();
 }
@@ -731,6 +758,7 @@ function saveNow(){
       const nextMeta={revision:current.meta.revision+1,token:createStateToken()};
       const result=await compareAndSetState(current.meta,stamped,nextMeta);
       if(!result.committed)throw staleStateError();
+      clearPendingJournalIfMatches(stamped,current.meta);
       persistedStateMeta=nextMeta;
       persistedShadow=cloneState(stamped);
       persistedRevision=revision;
@@ -755,6 +783,7 @@ function scheduleSave(){
   });
 }
 function save(){
+  writePendingJournal();
   updateStorageInfo();
   stateRevision++;
   scheduleSave();
