@@ -3,8 +3,17 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const qrcode = require('qrcode-generator');
 
 const root = path.resolve(__dirname, '..', 'site');
+const QR_PAYLOAD = 'ph1.test-nearby-pairing-code';
+
+function qrDataUrl(text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createDataURL(8, 4);
+}
 
 function serveFile(req, res) {
   const requested = new URL(req.url, 'http://127.0.0.1').pathname;
@@ -97,6 +106,21 @@ async function main() {
         Object.defineProperty(navigator, 'mediaDevices', { value: original, configurable: true });
       }
     }), true, 'unsupported camera branch must show gallery option');
+    assert.equal(await page.evaluate(async ({ dataUrl, payload }) => {
+      const originalCreateImageBitmap = window.createImageBitmap;
+      const originalBarcodeDetector = window.BarcodeDetector;
+      try {
+        Object.defineProperty(window, 'createImageBitmap', { value: undefined, configurable: true });
+        Object.defineProperty(window, 'BarcodeDetector', { value: undefined, configurable: true });
+        const blob = await fetch(dataUrl).then(response => response.blob());
+        const file = new File([blob], 'pairing-qr.gif', { type: blob.type });
+        await decodeQrImageFile({ target: { files: [file], value: 'selected' } });
+        return document.getElementById('syncRemote').value === payload;
+      } finally {
+        Object.defineProperty(window, 'createImageBitmap', { value: originalCreateImageBitmap, configurable: true });
+        Object.defineProperty(window, 'BarcodeDetector', { value: originalBarcodeDetector, configurable: true });
+      }
+    }, { dataUrl: qrDataUrl(QR_PAYLOAD), payload: QR_PAYLOAD }), true, 'gallery QR decoder must read a real QR image through the image fallback');
     await page.locator('.modal .x').click();
 
     await page.getByLabel('打开模块导航').click();
@@ -125,9 +149,9 @@ async function main() {
     assert.equal(restored.files.some(file => file.id === 'safe-clean-file'), true, 'undo should keep restored attachment blob available');
 
     await page.getByRole('tab', { name: '数据重置' }).click();
-    await page.getByRole('button', { name: '全部选择' }).click();
+    await page.getByRole('button', { name: '模块全选' }).click();
     assert.ok(await page.locator('[data-reset-module]:checked').count() >= 8, 'reset module all-select must select modules');
-    await page.getByRole('button', { name: '全部不选' }).click();
+    await page.getByRole('button', { name: '模块全不选' }).click();
     assert.equal(await page.locator('[data-reset-module]:checked').count(), 0, 'reset module all-none must clear modules');
     await page.getByRole('checkbox', { name: '外观设置' }).check();
     await page.getByText('将处理 外观设置').waitFor();
