@@ -9,6 +9,7 @@
     "audit": "node audit-interactions.js",
     "verify:sync": "node verify-sync.js",
     "verify:storage-v2": "node verify-storage-v2.js",
+    "verify:sync-v2": "node verify-sync-v2.js",
     "test:sync-core": "node --test sync-core.test.js",
     "test:recovery-core": "node --test recovery-core.test.js",
     "test:core": "node --test sync-core.test.js recovery-core.test.js"
