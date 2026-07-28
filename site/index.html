@@ -506,11 +506,13 @@ const FILE_STORE='files';
 const RECOVERY_STORE='recovery';
 const SYNC_META_STORE='sync-meta';
 const DEVICE_ID_KEY='deviceId';
+const STATE_REVISION_KEY='stateRevision';
+const STATE_WRITE_LOCK='personal-hub-state-write';
 let state=loadDefaultState();
 let currentMod='dashboard',detailId=null,editingId=null,inputMode='text',pendingAttach=null,pendingAttachType=null,pendingAttachPreview=null,searchQuery='',showArchived=false;
 let hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};
-let hwHeight=220,lpTimer=null,dragSrc=null,lpContext=null,editingWidget=null,editingMeta=null,saveTimer=null,backupDirHandle=null;
-let deviceId=null,persistedShadow=null,saveChain=Promise.resolve(),stateRevision=0,hydrated=false,hydrationPromise=null;
+let hwHeight=220,lpTimer=null,dragSrc=null,lpContext=null,editingWidget=null,editingMeta=null,backupDirHandle=null;
+let deviceId=null,persistedShadow=null,persistedStateMeta={revision:0,token:null},saveChain=Promise.resolve(),stateRevision=0,persistedRevision=0,saveQueued=false,hydrated=false,hydrationPromise=null;
 let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null;
 const fileUrlCache={};
 
@@ -637,17 +639,67 @@ async function idbSet(key,value){
 }
 function cloneState(value){return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value))}
 function createDeviceId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,byte=>byte.toString(16).padStart(2,'0')).join('')}
+function normalizeStateMeta(value){return value&&Number.isSafeInteger(value.revision)&&value.revision>=0&&typeof value.token==='string'&&value.token?{revision:value.revision,token:value.token}:{revision:0,token:null}}
+function sameStateMeta(left,right){return left.revision===right.revision&&left.token===right.token}
+function createStateToken(){return createDeviceId()}
 async function loadDeviceId(){
-  let id=await idbStoreGet(SYNC_META_STORE,DEVICE_ID_KEY);
-  if(typeof id==='string'&&id)return id;
-  id=createDeviceId();
-  await idbStorePut(SYNC_META_STORE,id,DEVICE_ID_KEY);
-  return id;
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    let id;
+    const tx=db.transaction(SYNC_META_STORE,'readwrite');
+    const store=tx.objectStore(SYNC_META_STORE);
+    const req=store.get(DEVICE_ID_KEY);
+    req.onsuccess=()=>{
+      id=req.result;
+      if(typeof id!=='string'||!id){id=createDeviceId();store.put(id,DEVICE_ID_KEY)}
+    };
+    tx.oncomplete=()=>{db.close();resolve(id)};
+    tx.onerror=()=>{db.close();reject(tx.error)};
+    tx.onabort=()=>{db.close();reject(tx.error||new Error('deviceId transaction aborted'))};
+  });
 }
+async function readPersistedState(){
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction([STORE_NAME,SYNC_META_STORE],'readonly');
+    const stateReq=tx.objectStore(STORE_NAME).get(KEY);
+    const metaReq=tx.objectStore(SYNC_META_STORE).get(STATE_REVISION_KEY);
+    tx.oncomplete=()=>{const result={state:stateReq.result,meta:normalizeStateMeta(metaReq.result)};db.close();resolve(result)};
+    tx.onerror=()=>{db.close();reject(tx.error)};
+  });
+}
+async function compareAndSetState(expected,stateValue,nextMeta){
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    let committed=false,currentMeta={revision:0,token:null};
+    const tx=db.transaction([STORE_NAME,SYNC_META_STORE],'readwrite');
+    const metaStore=tx.objectStore(SYNC_META_STORE);
+    const req=metaStore.get(STATE_REVISION_KEY);
+    req.onsuccess=()=>{
+      currentMeta=normalizeStateMeta(req.result);
+      if(!sameStateMeta(currentMeta,expected))return;
+      tx.objectStore(STORE_NAME).put(stateValue,KEY);
+      metaStore.put(nextMeta,STATE_REVISION_KEY);
+      committed=true;
+    };
+    tx.oncomplete=()=>{db.close();resolve({committed,currentMeta})};
+    tx.onerror=()=>{db.close();reject(tx.error)};
+    tx.onabort=()=>{db.close();reject(tx.error||new Error('state transaction aborted'))};
+  });
+}
+function staleStateError(){
+  toast('其他标签页已保存新数据，本页未覆盖。请刷新后再继续。');
+  const error=new Error('stale state conflict');
+  error.code='STALE_STATE';
+  return error;
+}
+function withStateWriteLock(task){return navigator.locks&&navigator.locks.request?navigator.locks.request(STATE_WRITE_LOCK,{mode:'exclusive'},task):task()}
 async function hydrateState(){
   let migratedLegacy=false,themeChanged=false;
   try{
-    const saved=await idbGet(KEY);
+    const persisted=await readPersistedState();
+    const saved=persisted.state;
+    persistedStateMeta=persisted.meta;
     if(saved&&saved.modules){state=saved}
     else{
       const old=JSON.parse(localStorage.getItem(KEY)||'null');
@@ -667,26 +719,47 @@ async function hydrateState(){
   if(themeChanged)save();
 }
 function saveNow(){
-  clearTimeout(saveTimer);
   const persist=async()=>{
     if(!hydrated&&hydrationPromise)await hydrationPromise;
     if(!deviceId)deviceId=await loadDeviceId();
     const revision=stateRevision;
-    const stamped=await SyncCore.stampChanges(cloneState(state),persistedShadow||state,deviceId);
-    await idbSet(KEY,stamped);
-    persistedShadow=cloneState(stamped);
-    if(stateRevision===revision)state=stamped;
-    return cloneState(stamped);
+    const snapshot=cloneState(state);
+    return withStateWriteLock(async()=>{
+      const current=await readPersistedState();
+      if(!sameStateMeta(current.meta,persistedStateMeta))throw staleStateError();
+      const stamped=await SyncCore.stampChanges(snapshot,current.state||persistedShadow||snapshot,deviceId);
+      const nextMeta={revision:current.meta.revision+1,token:createStateToken()};
+      const result=await compareAndSetState(current.meta,stamped,nextMeta);
+      if(!result.committed)throw staleStateError();
+      persistedStateMeta=nextMeta;
+      persistedShadow=cloneState(stamped);
+      persistedRevision=revision;
+      if(stateRevision===revision)state=stamped;
+      return cloneState(stamped);
+    });
   };
   saveChain=saveChain.then(persist,persist).catch(e=>{console.warn('IndexedDB 保存失败:',e);throw e});
   return saveChain;
 }
+function reportBackgroundSaveError(error){
+  if(error&&error.code==='STALE_STATE')return;
+  console.warn('IndexedDB 保存失败:',error);
+  toast('本机保存失败，请重试或先导出备份。');
+}
+function scheduleSave(){
+  if(saveQueued)return;
+  saveQueued=true;
+  Promise.resolve().then(()=>{
+    saveQueued=false;
+    saveNow().catch(reportBackgroundSaveError);
+  });
+}
 function save(){
   updateStorageInfo();
   stateRevision++;
-  clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>saveNow().catch(()=>{}),200);
+  scheduleSave();
 }
+window.addEventListener('pagehide',()=>{if(saveQueued||persistedRevision!==stateRevision)saveNow().catch(()=>{})});
 function uid(){return Math.random().toString(36).slice(2,9)}
 function esc(s){return String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
 function today(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
@@ -1439,7 +1512,6 @@ function saveLogForm(){
 function closeModal(){stopQrScan();document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;pendingAttach=null;pendingAttachType=null;pendingAttachPreview=null;hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
 document.getElementById('mask').addEventListener('click',e=>{if(e.target.id==='mask')closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('hwOverlay').classList.remove('show')}});
-window.addEventListener('pagehide',()=>{if(saveTimer)saveNow()});
 
 /* 新增模块 */
 function openModuleModal(){
@@ -1547,7 +1619,13 @@ async function buildBackup(){
 }
 async function buildBackupText(){return JSON.stringify(await buildBackup(),null,2)}
 async function restoreBackupFiles(files){if(!files||!files.length)return;for(const f of files){await idbStorePut(FILE_STORE,{id:f.id,name:f.name,type:f.type,size:f.size,kind:f.kind,createdAt:f.createdAt,blob:dataUrlToBlob(f.dataUrl)})}}
-async function exportData(){const text=await buildBackupText();const filename=`personal_hub_backup_${today()}.json`;if(await writeBackupToDir(filename,text)){toast('备份已保存到授权文件夹');return}const blob=new Blob([text],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();URL.revokeObjectURL(a.href);toast('备份已导出');}
+async function exportData(){
+  try{
+    const text=await buildBackupText();const filename=`personal_hub_backup_${today()}.json`;
+    if(await writeBackupToDir(filename,text)){toast('备份已保存到授权文件夹');return}
+    const blob=new Blob([text],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();URL.revokeObjectURL(a.href);toast('备份已导出');
+  }catch(error){console.warn('备份导出失败:',error);toast('备份导出失败，本机数据尚未安全保存，请重试。')}
+}
 function countBackupItems(data){return Object.values(data.modules||{}).reduce((sum,m)=>sum+((m.items||[]).length),0)}
 function importData(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const parsed=JSON.parse(ev.target.result);const data=parsed&&parsed.data&&parsed.data.modules?parsed.data:parsed;const meta=parsed&&parsed.data?parsed:null;if(data&&data.modules){const modules=Object.keys(data.modules).length;const items=countBackupItems(data);const exported=meta&&meta.exportedAt?new Date(meta.exportedAt).toLocaleString():'旧版备份或未知';const version=meta&&meta.version?meta.version:'旧版/未知';const size=(file.size/1024).toFixed(1)+'KB';const fileCount=meta&&meta.files?meta.files.length:0;if(!confirm(`导入会覆盖当前本机数据。\\n\\n备份版本：${version}\\n导出时间：${exported}\\n模块数量：${modules}\\n条目数量：${items}\\n附件数量：${fileCount}\\n文件大小：${size}\\n\\n确定继续？`))return;await restoreBackupFiles(meta&&meta.files);state=data;state.settings=state.settings||{theme:'default'};applyTheme();save();renderNav();renderContent();toast('备份已导入')}else toast('文件格式不正确')}catch(err){toast('导入失败：'+err.message)}finally{e.target.value=''}};reader.readAsText(file);}
 function openSyncModal(){
@@ -1569,7 +1647,12 @@ async function syncCreateOffer(){try{syncStatus('正在创建发送码...');cons
 async function syncCreateAnswer(){try{const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请先粘贴发送码');return}syncStatus('正在生成接收码...');const pc=setupSyncPc();await pc.setRemoteDescription(decodeDesc(remote));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);syncStatus('接收码已生成，复制或扫码回第一台设备')}catch(e){syncStatus('生成接收码失败：'+e.message)}}
 async function syncAcceptAnswer(){try{if(!syncPc){toast('请先创建发送码');return}const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请粘贴接收码');return}syncStatus('正在连接...');await syncPc.setRemoteDescription(decodeDesc(remote))}catch(e){syncStatus('连接失败：'+e.message)}}
 function sendSyncJson(obj){if(syncDc&&syncDc.readyState==='open')syncDc.send(JSON.stringify(obj))}
-async function syncSendBackup(){if(!syncDc||syncDc.readyState!=='open'){toast('设备还未连接');return}const text=await buildBackupText();const id=uid();const chunkSize=16000;const total=Math.ceil(text.length/chunkSize);syncStatus(`正在发送备份：0/${total}`);sendSyncJson({type:'backup-start',id,total,size:text.length});for(let i=0;i<total;i++){while(syncDc.bufferedAmount>512000)await new Promise(r=>setTimeout(r,50));sendSyncJson({type:'backup-chunk',id,index:i,chunk:text.slice(i*chunkSize,(i+1)*chunkSize)});syncStatus(`正在发送备份：${i+1}/${total}`)}sendSyncJson({type:'backup-end',id});toast('备份已发送');syncStatus('备份已发送')}
+async function syncSendBackup(){
+  if(!syncDc||syncDc.readyState!=='open'){toast('设备还未连接');return}
+  try{
+    const text=await buildBackupText();const id=uid();const chunkSize=16000;const total=Math.ceil(text.length/chunkSize);syncStatus(`正在发送备份：0/${total}`);sendSyncJson({type:'backup-start',id,total,size:text.length});for(let i=0;i<total;i++){while(syncDc.bufferedAmount>512000)await new Promise(r=>setTimeout(r,50));sendSyncJson({type:'backup-chunk',id,index:i,chunk:text.slice(i*chunkSize,(i+1)*chunkSize)});syncStatus(`正在发送备份：${i+1}/${total}`)}sendSyncJson({type:'backup-end',id});toast('备份已发送');syncStatus('备份已发送')
+  }catch(error){console.warn('同步发送失败:',error);syncStatus('发送失败：本机数据未保存');toast('同步发送失败，本机数据尚未安全保存，请重试。')}
+}
 function receiveSyncMessage(raw){try{const msg=JSON.parse(raw);if(msg.type==='backup-start'){syncIncoming={id:msg.id,total:msg.total,chunks:Array(msg.total),received:0};syncStatus(`正在接收备份：0/${msg.total}`);return}if(msg.type==='backup-chunk'&&syncIncoming&&msg.id===syncIncoming.id){if(syncIncoming.chunks[msg.index]==null){syncIncoming.chunks[msg.index]=msg.chunk;syncIncoming.received++}syncStatus(`正在接收备份：${syncIncoming.received}/${syncIncoming.total}`);return}if(msg.type==='backup-end'&&syncIncoming&&msg.id===syncIncoming.id){const text=syncIncoming.chunks.join('');syncIncoming=null;receiveSyncBackup(text)}}catch(e){syncStatus('接收消息失败：'+e.message)}}
 async function receiveSyncBackup(text){try{const parsed=JSON.parse(text);const data=parsed&&parsed.data&&parsed.data.modules?parsed.data:null;if(!data){toast('收到的数据格式不正确');return}if(confirm(`收到另一台设备的备份。\\n导出时间：${new Date(parsed.exportedAt).toLocaleString()}\\n条目数量：${countBackupItems(data)}\\n附件数量：${(parsed.files||[]).length}\\n\\n是否覆盖当前本机数据？`)){await restoreBackupFiles(parsed.files);state=data;state.settings=state.settings||{theme:'default'};applyTheme();save();renderNav();renderContent();toast('已接收并导入备份')}}catch(e){toast('接收失败：'+e.message)}}
 async function startQrScan(){
