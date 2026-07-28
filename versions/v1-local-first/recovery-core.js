@@ -134,7 +134,7 @@
 
   function tombstone(moduleId, pathSegments, parentId, record) {
     return {
-      id: record && typeof record.id === 'string' ? record.id : null,
+      id: record ? record.id : null,
       path: pathSegments.join('.'),
       pathSegments: pathSegments.slice(),
       moduleId: moduleId,
@@ -142,10 +142,53 @@
     };
   }
 
+  function tombstoneKey(value) {
+    return JSON.stringify([
+      value.pathSegments,
+      value.parentId == null ? null : String(value.parentId),
+      String(value.id)
+    ]);
+  }
+
+  function collectRecordTombstones(value) {
+    const result = new Map();
+
+    function visit(node, pathSegments, parentId) {
+      if (!isObject(node)) return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, pathSegments, parentId);
+        return;
+      }
+      const hasId = hasOwn(node, 'id') && node.id != null;
+      const nextParentId = hasId ? node.id : parentId;
+      if (hasId) {
+        const moduleId = pathSegments[0] === 'modules' && pathSegments[1]
+          ? pathSegments[1]
+          : null;
+        const removed = tombstone(moduleId, pathSegments, parentId, node);
+        result.set(tombstoneKey(removed), removed);
+      }
+      for (const key of Object.keys(node)) {
+        if (key !== '_sync') visit(node[key], pathSegments.concat(key), nextParentId);
+      }
+    }
+
+    visit(value, [], null);
+    return result;
+  }
+
+  function removedTombstones(before, after) {
+    const beforeMap = collectRecordTombstones(before);
+    const afterMap = collectRecordTombstones(after);
+    return Array.from(beforeMap.entries())
+      .filter(entry => !afterMap.has(entry[0]))
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map(entry => entry[1]);
+  }
+
   function cleanupResult(state, options, recoveryPoints) {
     const selection = normalizeOptions(options);
     const next = clone(state);
-    const tombstones = [];
     const stats = { completed: 0, archived: 0, records: 0, removedFileCandidates: 0 };
     const modules = isObject(next) && isObject(next.modules) ? next.modules : {};
 
@@ -159,7 +202,6 @@
         if (!category) return true;
         stats[category] += 1;
         stats.records += 1;
-        tombstones.push(tombstone(moduleId, ['modules', moduleId, 'items'], null, record));
         return false;
       });
     }
@@ -167,7 +209,12 @@
     const referenced = collectReferencedFileIds(next, recoveryPoints);
     const removedFileCandidates = normalizeFileIds(selection.fileIds).filter(fileId => !referenced.has(fileId));
     stats.removedFileCandidates = removedFileCandidates.length;
-    return { state: next, tombstones: tombstones, removedFileCandidates: removedFileCandidates, stats: stats };
+    return {
+      state: next,
+      tombstones: removedTombstones(state, next),
+      removedFileCandidates: removedFileCandidates,
+      stats: stats
+    };
   }
 
   function previewCleanup(state, options, recoveryPoints) {
@@ -176,33 +223,6 @@
 
   function applyCleanup(state, options, recoveryPoints) {
     return cleanupResult(state, options, recoveryPoints);
-  }
-
-  function collectRecordTombstones(moduleId, module) {
-    const result = [];
-    const seen = new Set();
-
-    function visit(value, path, parentId) {
-      if (!isObject(value) || seen.has(value)) return;
-      seen.add(value);
-      const hasId = !Array.isArray(value) && hasOwn(value, 'id') && typeof value.id === 'string' && value.id !== '';
-      const nextParentId = hasId ? value.id : parentId;
-      if (hasId) {
-        result.push(tombstone(moduleId, path, parentId, value));
-      }
-      if (Array.isArray(value)) {
-        for (let index = 0; index < value.length; index += 1) {
-          visit(value[index], path, parentId);
-        }
-      } else {
-        for (const key of Object.keys(value)) {
-          if (key !== '_sync') visit(value[key], path.concat(key), nextParentId);
-        }
-      }
-    }
-
-    if (module && Array.isArray(module.items)) visit(module.items, ['modules', moduleId, 'items'], null);
-    return result;
   }
 
   function replaceTopLevel(target, initial, key) {
@@ -216,17 +236,11 @@
     const initial = isObject(initialState) ? initialState : {};
     const full = selection.fullLocalData === true;
     const next = full ? clone(initial) : clone(source);
-    const tombstones = [];
     const selectedModules = full
       ? Object.keys(isObject(source.modules) ? source.modules : {})
       : [...new Set(Array.isArray(selection.modules) ? selection.modules.filter(id => typeof id === 'string') : [])];
-    let records = 0;
 
     for (const moduleId of selectedModules) {
-      const oldModule = isObject(source.modules) ? source.modules[moduleId] : undefined;
-      const removed = collectRecordTombstones(moduleId, oldModule);
-      records += removed.length;
-      tombstones.push(...removed);
       if (full) continue;
       if (!isObject(next.modules)) next.modules = {};
       if (isObject(initial.modules) && hasOwn(initial.modules, moduleId)) {
@@ -245,16 +259,22 @@
 
     const referenced = collectReferencedFileIds(next, recoveryPoints);
     const removedFileCandidates = normalizeFileIds(selection.fileIds).filter(fileId => !referenced.has(fileId));
+    const tombstones = removedTombstones(source, next);
     const stats = {
       destructive: full,
       modules: selectedModules.length,
-      records: records,
+      records: tombstones.length,
       appearance: full || selection.appearance === true ? 1 : 0,
       dashboardLayout: full || selection.dashboardLayout === true ? 1 : 0,
       syncDevices: full || selection.syncDevices === true ? 1 : 0,
       removedFileCandidates: removedFileCandidates.length
     };
-    return { state: next, tombstones: tombstones, removedFileCandidates: removedFileCandidates, stats: stats };
+    return {
+      state: next,
+      tombstones: tombstones,
+      removedFileCandidates: removedFileCandidates,
+      stats: stats
+    };
   }
 
   function previewReset(state, initialState, options, recoveryPoints) {

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const Recovery = require('../versions/v1-local-first/recovery-core.js');
+const SyncCore = require('../versions/v1-local-first/sync-core.js');
 
 const API = [
   'applyCleanup',
@@ -64,6 +65,21 @@ function defaults() {
   state.syncDevices = {};
   delete state._sync;
   return state;
+}
+
+function identity(tombstone) {
+  return {
+    id: tombstone.id,
+    path: tombstone.path,
+    pathSegments: tombstone.pathSegments,
+    moduleId: tombstone.moduleId,
+    parentId: tombstone.parentId
+  };
+}
+
+async function stampedRemovalIdentities(before, after) {
+  const stamped = await SyncCore.stampChanges(after, before, 'cleanup-device');
+  return stamped._sync.tombstones.map(identity);
 }
 
 test('exports the recovery API through CommonJS and browser UMD', () => {
@@ -135,7 +151,7 @@ test('cleanup and reset tombstones use sync-compatible paths and nested parent I
   const cleanup = Recovery.applyCleanup(state, { completed: true });
   const reset = Recovery.applyReset(state, initial, { modules: ['tasks'] });
 
-  assert.deepEqual(cleanup.tombstones[0], {
+  assert.deepEqual(cleanup.tombstones.find(item => item.id === 'task-done'), {
     id: 'task-done',
     path: 'modules.tasks.items',
     pathSegments: ['modules', 'tasks', 'items'],
@@ -149,6 +165,80 @@ test('cleanup and reset tombstones use sync-compatible paths and nested parent I
     moduleId: 'tasks',
     parentId: 'task-done'
   });
+});
+
+test('cleanup and reset recursively match SyncCore tombstones for complete removed subtrees', async () => {
+  const state = {
+    modules: {
+      tasks: {
+        type: 'task',
+        items: [{
+          id: 'parent',
+          done: true,
+          noIdContainer: {
+            children: [{
+              id: 'child',
+              noIdContainer: { grandchildren: [{ id: 'grandchild' }] }
+            }]
+          },
+          left: [{ id: 'same-id' }, { id: 'duplicate' }, { id: 'duplicate' }],
+          right: { noIdContainer: [{ id: 'same-id' }] }
+        }]
+      }
+    }
+  };
+  const initial = { modules: { tasks: { type: 'task', items: [] } } };
+  const before = structuredClone(state);
+  const cleanup = Recovery.applyCleanup(state, { completed: true });
+  const reset = Recovery.applyReset(state, initial, { modules: ['tasks'] });
+  const expectedCleanup = await stampedRemovalIdentities(state, cleanup.state);
+  const expectedReset = await stampedRemovalIdentities(state, reset.state);
+
+  assert.deepEqual(cleanup.tombstones.map(identity), expectedCleanup);
+  assert.deepEqual(reset.tombstones.map(identity), expectedReset);
+  assert.equal(cleanup.tombstones.length, new Set(cleanup.tombstones.map(item =>
+    JSON.stringify([item.pathSegments, item.parentId, item.id])
+  )).size);
+  assert.equal(reset.tombstones.length, new Set(reset.tombstones.map(item =>
+    JSON.stringify([item.pathSegments, item.parentId, item.id])
+  )).size);
+  assert.equal(cleanup.tombstones.some(item =>
+    item.id === 'grandchild' &&
+    item.parentId === 'child' &&
+    item.path === 'modules.tasks.items.noIdContainer.children.noIdContainer.grandchildren'
+  ), true);
+  assert.equal(cleanup.tombstones.filter(item => item.id === 'same-id').length, 2);
+  assert.deepEqual(state, before);
+});
+
+test('reset tombstones match the final state when identities are retained or removed outside modules', async () => {
+  const state = {
+    dashWidgets: [{ id: 'widget-parent', children: [{ id: 'widget-child' }] }],
+    modules: {
+      tasks: {
+        type: 'task',
+        items: [{ id: 'retained-parent', children: [{ id: 'removed-child' }] }]
+      }
+    }
+  };
+  const initial = {
+    dashWidgets: [],
+    modules: {
+      tasks: { type: 'task', items: [{ id: 'retained-parent', children: [] }] }
+    }
+  };
+  const before = structuredClone(state);
+  const result = Recovery.applyReset(state, initial, {
+    modules: ['tasks'],
+    dashboardLayout: true
+  });
+
+  assert.deepEqual(
+    result.tombstones.map(identity),
+    await stampedRemovalIdentities(state, result.state)
+  );
+  assert.equal(result.tombstones.some(item => item.id === 'retained-parent'), false);
+  assert.deepEqual(state, before);
 });
 
 test('cleanup preview and apply report identical statistics', () => {
@@ -192,14 +282,14 @@ test('selective reset supports multiple modules and independent settings groups'
   assert.deepEqual(preview, {
     destructive: false,
     modules: 2,
-    records: 4,
+    records: 6,
     appearance: 1,
     dashboardLayout: 1,
     syncDevices: 1,
     removedFileCandidates: 2
   });
   assert.deepEqual(applied.tombstones.map(item => item.id).sort(),
-    ['paper-1', 'task-archived', 'task-done', 'task-live']);
+    ['paper-1', 'tablet', 'task-archived', 'task-done', 'task-live', 'widget-1']);
   assert.deepEqual(applied.removedFileCandidates.sort(), ['dashboard-file', 'shared-file']);
   assert.equal(state.settings.theme, 'dark');
 });
@@ -214,7 +304,7 @@ test('full local reset is marked destructive and resets all local state', () => 
   assert.equal(preview.destructive, true);
   assert.deepEqual(applied.state, initial);
   assert.deepEqual(applied.stats, preview);
-  assert.equal(applied.tombstones.length, 6);
+  assert.equal(applied.tombstones.length, 8);
   assert.deepEqual(applied.removedFileCandidates.sort(), ['done-file', 'orphan-file', 'shared-file']);
 });
 
