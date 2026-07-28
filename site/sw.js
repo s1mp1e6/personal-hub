@@ -1,5 +1,8 @@
-const CACHE_NAME = 'personal-hub-v1-local-first-2';
-const ASSETS = ['./', './index.html', './manifest.json'];
+const CACHE_NAME = 'personal-hub-v1-local-first-3';
+const ASSETS = [
+  './', './index.html', './manifest.json', './sync-core.js', './recovery-core.js',
+  './vendor/qrcode.js', './vendor/jsQR.js', './vendor/lz-string.min.js'
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));

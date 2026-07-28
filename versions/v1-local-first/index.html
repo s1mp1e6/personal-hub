@@ -486,7 +486,11 @@
 <script src="vendor/qrcode.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/lz-string.min.js"></script>
+<script src="sync-core.js"></script>
+<script src="recovery-core.js"></script>
 <script>
+const SyncCore=window.PersonalHubSyncCore;
+const RecoveryCore=window.PersonalHubRecoveryCore;
 // 注册 Service Worker（PWA 离线支持）
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
@@ -496,13 +500,17 @@ if('serviceWorker' in navigator){
 const KEY='personal_hub_v6';
 const BACKUP_DIR_KEY='personal_hub_backup_dir';
 const DB_NAME='personal_hub_local_first';
-const DB_VERSION=2;
+const DB_VERSION=3;
 const STORE_NAME='kv';
 const FILE_STORE='files';
+const RECOVERY_STORE='recovery';
+const SYNC_META_STORE='sync-meta';
+const DEVICE_ID_KEY='deviceId';
 let state=loadDefaultState();
 let currentMod='dashboard',detailId=null,editingId=null,inputMode='text',pendingAttach=null,pendingAttachType=null,pendingAttachPreview=null,searchQuery='',showArchived=false;
 let hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};
 let hwHeight=220,lpTimer=null,dragSrc=null,lpContext=null,editingWidget=null,editingMeta=null,saveTimer=null,backupDirHandle=null;
+let deviceId=null,persistedShadow=null,saveChain=Promise.resolve(),stateRevision=0,hydrated=false,hydrationPromise=null;
 let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null;
 const fileUrlCache={};
 
@@ -560,7 +568,7 @@ function loadDefaultState(){
 function openDb(){
   return new Promise((resolve,reject)=>{
     const req=indexedDB.open(DB_NAME,DB_VERSION);
-    req.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains(STORE_NAME))db.createObjectStore(STORE_NAME);if(!db.objectStoreNames.contains(FILE_STORE))db.createObjectStore(FILE_STORE,{keyPath:'id'})};
+    req.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains(STORE_NAME))db.createObjectStore(STORE_NAME);if(!db.objectStoreNames.contains(FILE_STORE))db.createObjectStore(FILE_STORE,{keyPath:'id'});if(!db.objectStoreNames.contains(RECOVERY_STORE))db.createObjectStore(RECOVERY_STORE);if(!db.objectStoreNames.contains(SYNC_META_STORE))db.createObjectStore(SYNC_META_STORE)};
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error);
   });
@@ -627,24 +635,57 @@ async function idbSet(key,value){
     tx.onerror=()=>{db.close();reject(tx.error)};
   });
 }
+function cloneState(value){return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value))}
+function createDeviceId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,byte=>byte.toString(16).padStart(2,'0')).join('')}
+async function loadDeviceId(){
+  let id=await idbStoreGet(SYNC_META_STORE,DEVICE_ID_KEY);
+  if(typeof id==='string'&&id)return id;
+  id=createDeviceId();
+  await idbStorePut(SYNC_META_STORE,id,DEVICE_ID_KEY);
+  return id;
+}
 async function hydrateState(){
+  let migratedLegacy=false,themeChanged=false;
   try{
     const saved=await idbGet(KEY);
     if(saved&&saved.modules){state=saved}
     else{
       const old=JSON.parse(localStorage.getItem(KEY)||'null');
-      if(old&&old.modules){state=old;await idbSet(KEY,state);localStorage.setItem(KEY+'_migrated','1')}
+      if(old&&old.modules){state=old;migratedLegacy=true}
     }
+    state=await SyncCore.migrateState(state);
+    deviceId=await loadDeviceId();
+    if(migratedLegacy){await idbSet(KEY,state);localStorage.setItem(KEY+'_migrated','1')}
+    persistedShadow=cloneState(state);
     backupDirHandle=await idbGet(BACKUP_DIR_KEY);
   }catch(e){console.warn('IndexedDB 加载失败，使用默认数据:',e)}
-  if(state.settings&&state.settings.theme==='warm'&&!state.settings.themeExplicit){state.settings.theme='default';save()}
+  if(!deviceId){try{deviceId=await loadDeviceId()}catch(e){console.warn('设备标识加载失败:',e)}}
+  if(!persistedShadow){state=await SyncCore.migrateState(state);persistedShadow=cloneState(state)}
+  if(state.settings&&state.settings.theme==='warm'&&!state.settings.themeExplicit){state.settings.theme='default';themeChanged=true}
+  hydrated=true;
   applyTheme();renderNav();renderContent();updateStorageInfo();
+  if(themeChanged)save();
 }
-function saveNow(){clearTimeout(saveTimer);return idbSet(KEY,state).catch(e=>console.warn('IndexedDB 保存失败:',e))}
+function saveNow(){
+  clearTimeout(saveTimer);
+  const persist=async()=>{
+    if(!hydrated&&hydrationPromise)await hydrationPromise;
+    if(!deviceId)deviceId=await loadDeviceId();
+    const revision=stateRevision;
+    const stamped=await SyncCore.stampChanges(cloneState(state),persistedShadow||state,deviceId);
+    await idbSet(KEY,stamped);
+    persistedShadow=cloneState(stamped);
+    if(stateRevision===revision)state=stamped;
+    return stamped;
+  };
+  saveChain=saveChain.then(persist,persist).catch(e=>{console.warn('IndexedDB 保存失败:',e);throw e});
+  return saveChain;
+}
 function save(){
   updateStorageInfo();
+  stateRevision++;
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>idbSet(KEY,state).catch(e=>console.warn('IndexedDB 保存失败:',e)),200);
+  saveTimer=setTimeout(()=>saveNow().catch(()=>{}),200);
 }
 function uid(){return Math.random().toString(36).slice(2,9)}
 function esc(s){return String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
@@ -1498,6 +1539,7 @@ function collectFileRefs(obj,set=new Set()){if(!obj||typeof obj!=='object')retur
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(blob)})}
 function dataUrlToBlob(dataUrl){const [head,body]=dataUrl.split(',');const mime=(head.match(/data:(.*?);/)||[])[1]||'application/octet-stream';const bin=atob(body);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type:mime})}
 async function buildBackup(){
+  await saveNow();
   const ids=[...collectFileRefs(state)];
   const files=[];
   for(const id of ids){const rec=await idbStoreGet(FILE_STORE,id);if(rec&&rec.blob)files.push({id:rec.id,name:rec.name,type:rec.type,size:rec.size,kind:rec.kind,createdAt:rec.createdAt,dataUrl:await blobToDataUrl(rec.blob)})}
@@ -1562,7 +1604,7 @@ async function scanQrFrame(){
 }
 function updateStorageInfo(){try{const size=new Blob([JSON.stringify(state)]).size;document.getElementById('storageInfo').textContent='本机 '+(size/1024).toFixed(1)+'KB'}catch(e){}}
 
-function init(){renderNav();renderContent();hydrateState();updateClock();setInterval(updateClock,1000);updateStorageInfo();}
+function init(){renderNav();renderContent();hydrationPromise=hydrateState();updateClock();setInterval(updateClock,1000);updateStorageInfo();}
 init();
 </script>
 </body>
