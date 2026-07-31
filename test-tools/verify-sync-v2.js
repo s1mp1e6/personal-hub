@@ -25,7 +25,7 @@ function serveFile(req, res) {
 
 async function openSync(page) {
   await page.locator('.sidebar .foot button').last().click();
-  await page.getByLabel('打开近距离设备同步').click();
+  await page.locator('button[onclick="openSyncModal()"]').click();
   await page.getByRole('heading', { name: '近距离设备同步' }).waitFor();
 }
 
@@ -69,22 +69,18 @@ async function seed(page, side) {
 }
 
 async function pair(sender, receiver) {
-  for (const page of [sender, receiver]) {
-    const fallback = page.getByText('离线配对', { exact: true });
-    if (await page.locator('details[open] summary').filter({ hasText: '离线配对' }).count() === 0) await fallback.click();
-  }
-  await sender.getByRole('button', { name: '创建发送码' }).click();
+  await sender.locator('button[onclick="syncCreateOffer()"]').click();
   await sender.waitForFunction(() => document.querySelector('#syncLocal')?.value.startsWith('ph1.'));
   const offer = await sender.locator('#syncLocal').inputValue();
   await receiver.locator('#syncRemote').fill(offer);
-  await receiver.getByRole('button', { name: '生成接收码' }).click();
+  await receiver.locator('button[onclick="syncCreateAnswer()"]').click();
   await receiver.waitForFunction(() => document.querySelector('#syncLocal')?.value.startsWith('ph1.'));
   const answer = await receiver.locator('#syncLocal').inputValue();
   await sender.locator('#syncRemote').fill(answer);
-  await sender.getByRole('button', { name: '连接接收码' }).click();
+  await sender.locator('button[onclick="syncAcceptAnswer()"]').click();
   await Promise.all([
-    sender.getByText('比较数据', { exact: true }).waitFor(),
-    receiver.getByText('比较数据', { exact: true }).waitFor()
+    sender.waitForFunction(() => syncDc && syncDc.readyState === 'open'),
+    receiver.waitForFunction(() => syncDc && syncDc.readyState === 'open')
   ]);
 }
 
@@ -232,9 +228,9 @@ async function main() {
     for (const type of ['scope-offer', 'manifest-request', 'manifest', 'plan-selection', 'data-start', 'data-chunk', 'data-end', 'commit-result', 'abort']) {
       assert.ok(trace.has(type), `protocol trace missing ${type}`);
     }
-    assert.equal(await sender.getByText('离线配对').count(), 1, 'offline long-code fallback must remain');
-    assert.equal(await sender.locator('details:has(summary:text-is("离线配对"))').getAttribute('open'), null,
-      'offline pairing details must be collapsed by default');
+    const fallbackDetails = sender.locator('details', { has: sender.locator('button[onclick="syncSendBackup()"]') });
+    assert.equal(await fallbackDetails.count(), 1, 'long-code fallback must remain');
+    assert.equal(await fallbackDetails.getAttribute('open'), null, 'long-code fallback details must be collapsed by default');
     assert.deepEqual(errors, [], 'unexpected page errors');
     await Promise.all([senderContext.close(), receiverContext.close()]);
 

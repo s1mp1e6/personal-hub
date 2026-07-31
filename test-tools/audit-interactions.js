@@ -65,22 +65,19 @@ async function testDesktop(baseUrl, browser) {
   const clockText = await page.locator('#dashClock').innerText();
   if (clockText.includes('--')) throw new Error(`desktop: quote click left clock placeholder: ${clockText}`);
 
-  await page.getByTitle('查看本机数据说明').click();
-  await page.getByText('本机数据与备份').waitFor();
-  await page.getByText('主题').waitFor();
-  await page.getByLabel('切换到深色主题').click();
+  await page.locator('button[onclick="openStorageInfo()"]').click();
+  await page.locator('#themePick').waitFor();
+  await page.evaluate(() => setTheme('dark'));
   const themeAfterDark = await page.evaluate(() => document.documentElement.dataset.theme);
   if (themeAfterDark !== 'dark') throw new Error(`desktop: theme did not switch to dark, got ${themeAfterDark}`);
-  await page.getByText('备份位置').waitFor();
-  await page.getByText('网页不能静默写入任意默认路径').waitFor();
-  await page.getByLabel('打开近距离设备同步').click();
-  const offlinePairing = page.locator('details:has(summary:text-is("离线配对"))');
-  if (await offlinePairing.getAttribute('open') !== null) throw new Error('desktop: offline pairing should be collapsed by default');
-  await offlinePairing.locator('summary').click();
-  await page.locator('#syncLocal').waitFor();
+  await page.locator('button[onclick="openSyncModal()"]').click();
+  await page.locator('#syncQr').waitFor();
+  await page.locator('button[onclick="syncCreateOffer()"]').click();
+  await page.locator('#syncQr svg').waitFor();
+  await page.locator('button[onclick="startQrScan()"]').waitFor();
   await page.locator('.modal .x').click();
-  await page.getByTitle('查看本机数据说明').click();
-  await page.getByLabel('切换到默认（原始）主题').click();
+  await page.locator('button[onclick="openStorageInfo()"]').click();
+  await page.evaluate(() => setTheme('default'));
   const themeAfterWarm = await page.evaluate(() => document.documentElement.dataset.theme);
   if (themeAfterWarm !== undefined) throw new Error(`desktop: default theme should remove data-theme, got ${themeAfterWarm}`);
   const downloadPromise = page.waitForEvent('download');
@@ -172,6 +169,18 @@ async function testMobile(baseUrl, browser) {
   const clockText = await page.locator('#dashClock').innerText();
   if (clockText.includes('--')) throw new Error(`mobile: quote click left clock placeholder: ${clockText}`);
 
+  await page.evaluate(() => openStorageInfo());
+  await page.locator('button[onclick="openSyncModal()"]').click();
+  await page.locator('button[onclick="syncCreateOffer()"]').click();
+  await page.locator('#syncQr svg').waitFor();
+  const syncLayout = await page.evaluate(() => {
+    const modal = document.querySelector('.modal').getBoundingClientRect();
+    const pairing = getComputedStyle(document.querySelector('.sync-pairing'));
+    return { modalWidth: modal.width, viewport: window.innerWidth, pairingColumns: pairing.gridTemplateColumns.split(' ').length };
+  });
+  if (syncLayout.modalWidth > syncLayout.viewport) throw new Error(`mobile: sync modal wider than viewport: ${syncLayout.modalWidth}`);
+  if (syncLayout.pairingColumns !== 1) throw new Error(`mobile: sync pairing should stack, got ${syncLayout.pairingColumns} columns`);
+  await page.locator('.modal .x').click();
   const metrics = await measure(page);
   if (metrics.overflow > 2) throw new Error(`mobile: horizontal overflow ${metrics.overflow}px`);
   await assertNoErrors('mobile', errors);

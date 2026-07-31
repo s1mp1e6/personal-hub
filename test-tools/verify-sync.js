@@ -24,9 +24,10 @@ function serveFile(req, res) {
 
 async function openSync(page) {
   await page.locator('.sidebar .foot button').last().click();
-  await page.getByLabel('打开近距离设备同步').click();
-  await page.locator('#syncLocal').waitFor();
-  await page.getByRole('button', { name: '扫码填入对方码' }).waitFor();
+  await page.locator('button[onclick="openSyncModal()"]').click();
+  await page.locator('#syncQr').waitFor();
+  await page.locator('button[onclick="syncCreateOffer()"]').waitFor();
+  await page.locator('button[onclick="startQrScan()"]').waitFor();
   await page.locator('#qrScanBox').waitFor({ state: 'attached' });
 }
 
@@ -93,7 +94,7 @@ async function main() {
 
     await openSync(sender);
     await openSync(receiver);
-    await sender.getByRole('button', { name: '创建发送码' }).click();
+    await sender.locator('button[onclick="syncCreateOffer()"]').click();
     await sender.locator('#syncLocal').evaluate(el => new Promise(resolve => {
       const check = () => el.value ? resolve() : setTimeout(check, 50);
       check();
@@ -105,7 +106,7 @@ async function main() {
     if (offer.length > 2500) throw new Error(`sender offer still too long: ${offer.length}`);
 
     await receiver.locator('#syncRemote').fill(offer);
-    await receiver.getByRole('button', { name: '生成接收码' }).click();
+    await receiver.locator('button[onclick="syncCreateAnswer()"]').click();
     await receiver.locator('#syncLocal').evaluate(el => new Promise(resolve => {
       const check = () => el.value ? resolve() : setTimeout(check, 50);
       check();
@@ -117,12 +118,10 @@ async function main() {
     if (answer.length > 2500) throw new Error(`receiver answer still too long: ${answer.length}`);
 
     await sender.locator('#syncRemote').fill(answer);
-    await sender.getByRole('button', { name: '连接接收码' }).click();
-    await sender.getByText('已连接，可以发送备份').waitFor({ timeout: 10000 });
-    await receiver.getByText('已连接，可以发送备份').waitFor({ timeout: 10000 });
-
-    await sender.getByRole('button', { name: '发送当前备份' }).click();
-    await receiver.getByText('已接收并导入备份').waitFor({ timeout: 15000 });
+    await sender.locator('button[onclick="syncAcceptAnswer()"]').click();
+    await sender.waitForFunction(() => syncDc && syncDc.readyState === 'open');
+    await receiver.waitForFunction(() => syncDc && syncDc.readyState === 'open');
+    await sender.locator('button[onclick="syncSendBackup()"]').click();
     await receiver.locator('.modal .x').click();
     await receiver.locator('.nav-item[data-mid="todos"]').click();
     await receiver.getByText(marker).waitFor();

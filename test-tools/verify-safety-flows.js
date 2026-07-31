@@ -89,8 +89,10 @@ async function main() {
     });
 
     await page.evaluate(() => openSyncModal());
-    await page.getByText('离线配对', { exact: true }).click();
-    await page.getByRole('button', { name: '扫码填入对方码' }).click();
+    await page.getByText('本机二维码', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '生成二维码' }).click();
+    await page.locator('#syncQr svg').waitFor();
+    await page.getByRole('button', { name: '扫码接收' }).click();
     await page.getByText('相机画面只用于本机识别二维码').waitFor();
     await page.getByRole('button', { name: '继续并请求权限' }).click();
     await page.getByText('可以改用相册识别二维码，或直接复制粘贴配对码。').waitFor();
