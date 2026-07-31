@@ -298,6 +298,19 @@
   .sync-code-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .sync-code-tools .btn{min-height:42px}
   .sync-code-compact textarea{min-height:72px;font-size:12px}
+  .qr-scan-stage{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:#111;margin-top:10px;box-shadow:inset 0 0 0 1px var(--line)}
+  .qr-scan-stage video{width:100%;height:100%;object-fit:cover;display:block}
+  .qr-scan-canvas{position:absolute;left:-9999px;top:-9999px}
+  .qr-scan-frame{position:absolute;left:9%;right:9%;top:9%;bottom:9%;pointer-events:none}
+  .qr-scan-frame i{position:absolute;width:26px;height:26px;border:3px solid rgba(255,255,255,.95);filter:drop-shadow(0 0 3px rgba(0,0,0,.75))}
+  .qr-scan-frame i:nth-child(1){left:0;top:0;border-right:0;border-bottom:0;border-top-left-radius:6px}
+  .qr-scan-frame i:nth-child(2){right:0;top:0;border-left:0;border-bottom:0;border-top-right-radius:6px}
+  .qr-scan-frame i:nth-child(3){left:0;bottom:0;border-right:0;border-top:0;border-bottom-left-radius:6px}
+  .qr-scan-frame i:nth-child(4){right:0;bottom:0;border-left:0;border-top:0;border-bottom-right-radius:6px}
+  .qr-scan-line{position:absolute;left:7%;right:7%;top:16%;height:2px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);animation:qrSweep 2.4s ease-in-out infinite;pointer-events:none}
+  @keyframes qrSweep{0%,100%{top:16%}50%{top:80%}}
+  .qr-scan-hint{font-size:12px;color:var(--ink-soft);margin-top:8px;display:flex;gap:6px;align-items:flex-start}
+  .qr-scan-hint::before{content:'▸';color:var(--accent);flex:0 0 auto}
   .btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:500;transition:all .12s;min-height:38px}
   .btn.primary{background:linear-gradient(135deg,var(--accent),#1a6fc0);color:#fff;box-shadow:0 2px 8px rgba(35,131,226,.3)}
   .btn.primary:hover{box-shadow:0 4px 12px rgba(35,131,226,.4);transform:translateY(-1px)}
@@ -306,8 +319,10 @@
   .btn.danger{background:var(--red-soft);color:var(--red)}
   .btn:disabled{opacity:.55;cursor:not-allowed;transform:none!important;box-shadow:none!important}
   .theme-pick{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
-  .theme-pick button{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:9px 10px;text-align:left;font-size:12px;color:var(--ink-soft);min-height:38px}
+  .theme-pick button{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:9px 10px;text-align:left;font-size:12px;color:var(--ink-soft);min-height:40px;transition:border-color .12s,background .12s}
+  .theme-pick button:hover{border-color:var(--line-strong)}
   .theme-pick button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .theme-swatch{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-strong);background:var(--swatch);flex:0 0 auto}
   .setting-box{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);color:var(--ink-soft)}
   .input-mode{display:flex;gap:8px;margin-bottom:16px;background:var(--bg);padding:4px;border-radius:10px}
   .input-mode button{flex:1;padding:9px;border-radius:7px;font-size:13px;color:var(--ink-soft);transition:all .12s}
@@ -538,7 +553,7 @@ let currentMod='dashboard',detailId=null,editingId=null,inputMode='text',pending
 let hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};
 let hwHeight=220,lpTimer=null,dragSrc=null,lpContext=null,editingWidget=null,editingMeta=null,backupDirHandle=null;
 let deviceId=null,persistedShadow=null,persistedStateMeta={revision:0,token:null},saveChain=Promise.resolve(),stateRevision=0,persistedRevision=0,saveQueued=false,hydrated=false,hydrationPromise=null;
-let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null;
+let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null,qrDetector=null;
 let syncRole=null,syncRemoteManifest=null,syncLocalManifest=null,syncPreviewPlan=null,syncMode='safe',syncLastRecovery=null,syncPeerScope=null;
 let syncOfferedScope=null,syncFrozenManifest=null,syncOfferedIdentityIds=new Set(),syncLastResult=null,syncSessionId=0;
 const SYNC_PROTOCOL=2,syncProtocolTrace=[];
@@ -823,13 +838,14 @@ function val(id){const e=document.getElementById(id);return e?e.value.trim():''}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
 function empty(msg,emoji='📭'){return `<div class="empty"><span class="emoji">${emoji}</span>${msg}</div>`}
 function checkSvg(){return `<svg viewBox="0 0 16 16"><path fill="currentColor" d="M6.2 11.2L3 8l1.4-1.4 1.8 1.8L11.6 3 13 4.4z"/></svg>`}
-function applyTheme(){const theme=(state.settings&&state.settings.theme)||'default';if(theme==='default')document.documentElement.removeAttribute('data-theme');else document.documentElement.dataset.theme=theme}
-function setTheme(theme){state.settings=state.settings||{};state.settings.theme=theme;state.settings.themeExplicit=true;applyTheme();save();renderThemePick();toast('主题已切换')}
+function normalizeTheme(theme){return theme==='warm'?'default':theme||'default'}
+function applyTheme(){const theme=normalizeTheme(state.settings&&state.settings.theme);if(theme==='default')document.documentElement.removeAttribute('data-theme');else document.documentElement.dataset.theme=theme}
+function setTheme(theme){state.settings=state.settings||{};state.settings.theme=normalizeTheme(theme);state.settings.themeExplicit=true;applyTheme();save();renderThemePick();toast('主题已切换')}
 function renderThemePick(){
   const el=document.getElementById('themePick');if(!el)return;
-  const current=(state.settings&&state.settings.theme)||'default';
-  const themes=[['default','默认（原始）'],['warm','暖白'],['light','清爽'],['dark','深色'],['forest','森绿']];
-  el.innerHTML=themes.map(([id,name])=>`<button class="${current===id?'active':''}" onclick="setTheme('${id}')" aria-label="切换到${name}主题">${name}</button>`).join('');
+  const current=normalizeTheme(state.settings&&state.settings.theme);
+  const themes=[['default','默认','linear-gradient(135deg,#f5f3ef 52%,#2383e2 52%)'],['light','清爽','linear-gradient(135deg,#f7f8fb 52%,#2563eb 52%)'],['dark','深色','linear-gradient(135deg,#242424 52%,#6aa8ff 52%)'],['forest','森绿','linear-gradient(135deg,#f2f6f1 52%,#2f7d55 52%)']];
+  el.innerHTML=themes.map(([id,name,swatch])=>`<button class="${current===id?'active':''}" onclick="setTheme('${id}')" aria-label="切换到${name}主题" aria-pressed="${current===id}"><span class="theme-swatch" style="--swatch:${swatch}"></span><span>${name}</span></button>`).join('');
 }
 
 /* 导航 */
@@ -1651,9 +1667,11 @@ function openStorageInfo(){
   document.getElementById('modalTitle').textContent='本机数据与备份';
   document.getElementById('modalBody').innerHTML=`
     <div style="font-size:13px;color:var(--ink);line-height:1.8">
-      <p>当前数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器。</p>
-      <p style="margin-top:8px;color:var(--ink-soft)">如果清除浏览器站点数据、换浏览器或换设备，原数据不会自动出现。建议定期导出备份文件。</p>
-      <div class="setting-box">当前本机数据约 ${(size/1024).toFixed(1)}KB。图片和附件会包含在备份 JSON 中。</div>
+      <div class="setting-box">
+        <strong style="color:var(--ink)">数据存储</strong>
+        <div style="font-size:12px;margin-top:4px">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现，建议定期导出。</div>
+        <div style="font-size:12px;color:var(--ink-faint);margin-top:6px">当前本机数据约 ${(size/1024).toFixed(1)}KB，附件包含在备份文件中。</div>
+      </div>
       <div class="setting-box"><strong style="color:var(--ink)">主题</strong><div class="theme-pick" id="themePick"></div></div>
       <div class="setting-box">
         <strong style="color:var(--ink)">备份位置</strong>
@@ -1665,8 +1683,11 @@ function openStorageInfo(){
         </div>
         ${fsSupported?'':'<div style="font-size:12px;color:var(--orange);margin-top:6px">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
       </div>
-      <div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--accent-soft);color:var(--ink-soft)"><strong style="color:var(--accent)">设备联动规划：</strong>下一版会加入扫码配对，把一台设备的数据点对点发送到另一台设备。当前版本请使用导出/导入完成换设备迁移。</div>
-      <div class="setting-box"><strong style="color:var(--ink)">近距离设备同步</strong><div style="font-size:12px;margin-top:4px">实验版使用 WebRTC 点对点传输，不经过服务器。当前先用复制/粘贴配对码，二维码配对将在下一步接入。</div><button class="btn ghost" style="margin-top:8px;width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">打开同步实验版</button></div>
+      <div class="setting-box">
+        <strong style="color:var(--ink)">近距离设备同步</strong>
+        <div style="font-size:12px;margin-top:4px">两台设备在本机页面内完成扫码配对，通过 WebRTC 点对点传输数据，不经过云服务器。</div>
+        <button class="btn ghost" style="margin-top:8px;width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">打开设备同步</button>
+      </div>
     </div>`;
   renderThemePick();
   document.getElementById('modeHint').textContent='导入备份会覆盖当前本机数据';
@@ -1717,7 +1738,8 @@ function openSyncModal(){
   syncRemoteManifest=null;syncLocalManifest=null;syncPreviewPlan=null;syncMode='safe';syncLastRecovery=null;
   const legacyOpen=new URLSearchParams(location.search).has('sync')?' open':'';
   document.querySelector('.modal').classList.add('modal-wide');
-  document.getElementById('modalBody').innerHTML=`<div class="sync-steps"><div class="sync-step active" data-sync-step="connect">连接设备</div><div class="sync-step" data-sync-step="compare">比较数据</div><div class="sync-step" data-sync-step="confirm">确认同步</div></div><section id="syncScopePane"><button class="btn ghost" type="button" onclick="toggleSyncScope()">选择同步内容</button><div id="syncScopeControls" style="display:none"><div class="sync-scope-actions"><button class="btn ghost" type="button" onclick="setAllSyncModules(true)">全部选择</button><button class="btn ghost" type="button" onclick="setAllSyncModules(false)">全部不选</button></div><div class="sync-module-list">${Object.entries(state.modules).map(([id,m])=>`<label class="sync-option"><input type="checkbox" data-sync-module value="${esc(id)}" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">${esc(m.name)}</span><span class="sync-option-meta">${(m.items||[]).length} 条</span></span></label>`).join('')}</div><label class="sync-option"><input type="checkbox" id="syncScopeSettings" onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步设置</span><span class="sync-option-meta">主题和工作台偏好</span></span></label><label class="sync-option"><input type="checkbox" id="syncScopeAttachments" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步附件</span><span class="sync-option-meta">仅传输所选记录引用的文件</span></span></label></div><div class="sync-summary" id="syncScopeSummary"></div></section><section id="syncComparePane" style="display:none"></section><div class="sync-pairing"><section class="sync-panel"><h4>本机二维码</h4><div class="sync-option-meta">第一台设备点生成，另一台设备扫码。</div><div id="syncQr" class="sync-qr-box">点击下方按钮生成二维码</div><div class="sync-code-tools"><button class="btn primary" onclick="syncCreateOffer()">生成二维码</button><button class="btn ghost" onclick="copySyncLocalCode()">复制本机码</button></div></section><section class="sync-panel"><h4>扫码或粘贴对方码</h4><div class="sync-option-meta">第二台扫码后生成回传二维码；第一台扫回传码后连接。</div><div class="sync-code-tools" style="margin:10px 0"><button class="btn primary" onclick="startQrScan()">扫码接收</button><button class="btn ghost" onclick="openQrImagePicker()">相册识别</button></div><div id="qrScanBox" style="display:none;margin-top:10px"><video id="qrVideo" autoplay playsinline muted style="width:100%;max-height:240px;border-radius:8px;background:#111"></video><canvas id="qrCanvas" style="display:none"></canvas><div id="qrHint" style="font-size:12px;color:var(--ink-faint);margin-top:6px">摄像头打开后，请把二维码放在画面中央。</div></div><div class="field sync-code-compact"><label>对方配对码</label><textarea id="syncRemote" placeholder="扫码后会自动填入，也可以粘贴"></textarea></div><div class="sync-code-tools"><button class="btn ghost" onclick="syncCreateAnswer()">生成回传二维码</button><button class="btn ghost" onclick="syncAcceptAnswer()">连接回传码</button></div></section></div><details${legacyOpen} style="margin-top:12px"><summary style="cursor:pointer;color:var(--ink-soft);font-size:12px">高级：查看长码 / 手动发送备份</summary><div style="font-size:12px;color:var(--ink-faint);margin:8px 0">二维码由本机页面生成，不调用云服务；摄像头只在本机识别二维码。</div><div class="field sync-code-compact"><label>本机配对码</label><textarea id="syncLocal" readonly></textarea></div><button class="btn ghost" style="width:100%" onclick="syncSendBackup()">发送当前备份</button></details><div id="syncStatus" style="font-size:12px;color:var(--ink-faint);margin-top:10px">未连接</div>`;
+  document.getElementById('modalBody').innerHTML=`<div class="sync-steps"><div class="sync-step active" data-sync-step="connect">连接设备</div><div class="sync-step" data-sync-step="compare">比较数据</div><div class="sync-step" data-sync-step="confirm">确认同步</div></div><section id="syncScopePane"><button class="btn ghost" type="button" onclick="toggleSyncScope()">选择同步内容</button><div id="syncScopeControls" style="display:none"><div class="sync-scope-actions"><button class="btn ghost" type="button" onclick="setAllSyncModules(true)">全部选择</button><button class="btn ghost" type="button" onclick="setAllSyncModules(false)">全部不选</button></div><div class="sync-module-list">${Object.entries(state.modules).map(([id,m])=>`<label class="sync-option"><input type="checkbox" data-sync-module value="${esc(id)}" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">${esc(m.name)}</span><span class="sync-option-meta">${(m.items||[]).length} 条</span></span></label>`).join('')}</div><label class="sync-option"><input type="checkbox" id="syncScopeSettings" onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步设置</span><span class="sync-option-meta">主题和工作台偏好</span></span></label><label class="sync-option"><input type="checkbox" id="syncScopeAttachments" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步附件</span><span class="sync-option-meta">仅传输所选记录引用的文件</span></span></label></div><div class="sync-summary" id="syncScopeSummary"></div></section><section id="syncComparePane" style="display:none"></section><div class="sync-pairing"><section class="sync-panel"><h4>本机二维码</h4><div class="sync-option-meta">第一台设备点生成，另一台设备扫码。</div><div id="syncQr" class="sync-qr-box">点击下方按钮生成二维码</div><div class="sync-code-tools"><button class="btn primary" onclick="syncCreateOffer()">生成二维码</button><button class="btn ghost" onclick="copySyncLocalCode()">复制本机码</button></div></section><section class="sync-panel"><h4>扫码或粘贴对方码</h4><div class="sync-option-meta">第二台扫码后生成回传二维码；第一台扫回传码后连接。</div><div class="sync-code-tools" style="margin:10px 0"><button class="btn primary" onclick="startQrScan()">扫码接收</button><button class="btn ghost" onclick="openQrImagePicker()">相册识别</button></div><div id="qrScanBox" style="display:none"><div class="qr-scan-stage"><video id="qrVideo" autoplay playsinline muted></video><canvas id="qrCanvas" class="qr-canvas"></canvas><div class="qr-scan-frame"><i></i><i></i><i></i><i></i></div><div class="qr-scan-line"></div></div><div id="qrHint" class="qr-scan-hint">摄像头打开后，请把二维码放在画面中央</div></div><div class="field sync-code-compact"><label>对方配对码</label><textarea id="syncRemote" placeholder="扫码后会自动填入，也可以粘贴"></textarea></div><div class="sync-code-tools"><button class="btn ghost" onclick="syncCreateAnswer()">生成回传二维码</button><button class="btn ghost" onclick="syncAcceptAnswer()">连接回传码</button></div></section></div><details${legacyOpen} style="margin-top:12px"><summary style="cursor:pointer;color:var(--ink-soft);font-size:12px">高级：查看长码 / 手动发送备份</summary><div style="font-size:12px;color:var(--ink-faint);margin:8px 0">二维码由本机页面生成，不调用云服务；摄像头只在本机识别二维码。</div><div class="field sync-code-compact"><label>本机配对码</label><textarea id="syncLocal" readonly></textarea></div><button class="btn ghost" style="width:100%" onclick="syncSendBackup()">发送当前备份</button></details><div id="syncStatus" style="font-size:12px;color:var(--ink-faint);margin-top:10px">未连接</div><input id="qrImageInput" type="file" accept="image/*" style="display:none">`;
+  const qrImageInput=document.getElementById('qrImageInput');if(qrImageInput)qrImageInput.onchange=decodeQrImageFile;
   updateSyncScopeSummary();
   document.getElementById('modeHint').textContent='双方都确认后才写入；中断不会修改本机数据';
   document.getElementById('modalSave').onclick=copySyncLocalCode;
@@ -1840,7 +1862,7 @@ async function startQrScan(){
   try{
     stopQrScan();
     const box=document.getElementById('qrScanBox');
-    box.innerHTML='<video id="qrVideo" autoplay playsinline muted style="width:100%;max-height:240px;border-radius:8px;background:#111"></video><canvas id="qrCanvas" style="display:none"></canvas><div id="qrHint" style="font-size:12px;color:var(--ink-faint);margin-top:6px">摄像头打开后，请把二维码放在画面中央。</div>';
+    box.innerHTML='<div class="qr-scan-stage"><video id="qrVideo" autoplay playsinline muted></video><canvas id="qrCanvas" class="qr-canvas"></canvas><div class="qr-scan-frame"><i></i><i></i><i></i><i></i></div><div class="qr-scan-line"></div></div><div id="qrHint" class="qr-scan-hint">摄像头打开后，请把二维码放在画面中央</div>';
     const video=document.getElementById('qrVideo'),hint=document.getElementById('qrHint');
     box.style.display='block';syncStatus('正在打开摄像头...');
     try{qrStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false})}
@@ -1854,7 +1876,7 @@ function showCameraPermissionGuide(){
   const box=document.getElementById('qrScanBox');
   if(!box)return;
   box.style.display='block';
-  box.innerHTML=`<div class="sync-summary">相机画面只用于本机识别二维码，不会上传到服务器。</div><div class="sync-summary">如果浏览器拒绝权限，可以改用相册识别或复制粘贴配对码。</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn primary" type="button" onclick="continueQrCamera()">继续并请求权限</button><button class="btn ghost" type="button" onclick="openQrImagePicker()">从相册识别二维码</button></div><input id="qrImageInput" type="file" accept="image/*" capture="environment" style="display:none">`;
+  box.innerHTML=`<div class="sync-summary">相机画面只用于本机识别二维码，不会上传到服务器。</div><div class="sync-summary">如果浏览器拒绝权限，可以改用相册识别或复制粘贴配对码。</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn primary" type="button" onclick="continueQrCamera()">继续并请求权限</button><button class="btn ghost" type="button" onclick="openQrImagePicker()">从相册识别二维码</button></div><input id="qrImageInput" type="file" accept="image/*" style="display:none">`;
   const input=document.getElementById('qrImageInput');
   if(input)input.onchange=decodeQrImageFile;
   syncStatus('先确认说明，再请求摄像头权限');
@@ -1862,22 +1884,37 @@ function showCameraPermissionGuide(){
 async function continueQrCamera(){state.settings=state.settings||{};state.settings.qrCameraGuideSeen=true;save();await startQrScan()}
 function showCameraDeniedHelp(message){
   const box=document.getElementById('qrScanBox');
-  if(box){box.style.display='block';box.innerHTML=`<div class="sync-summary">${esc(message||'摄像头权限被拒绝。')}</div><div class="sync-summary">可以改用相册识别二维码，或直接复制粘贴配对码。</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn primary" type="button" onclick="openQrImagePicker()">从相册识别二维码</button><button class="btn ghost" type="button" onclick="showCameraPermissionGuide()">重新查看说明</button></div><input id="qrImageInput" type="file" accept="image/*" capture="environment" style="display:none">`;const input=document.getElementById('qrImageInput');if(input)input.onchange=decodeQrImageFile}
+  if(box){box.style.display='block';box.innerHTML=`<div class="sync-summary">${esc(message||'摄像头权限被拒绝。')}</div><div class="sync-summary">可以改用相册识别二维码，或直接复制粘贴配对码。</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn primary" type="button" onclick="openQrImagePicker()">从相册识别二维码</button><button class="btn ghost" type="button" onclick="showCameraPermissionGuide()">重新查看说明</button></div><input id="qrImageInput" type="file" accept="image/*" style="display:none">`;const input=document.getElementById('qrImageInput');if(input)input.onchange=decodeQrImageFile}
   syncStatus(message||'摄像头权限被拒绝')
 }
 function openQrImagePicker(){const input=document.getElementById('qrImageInput');if(input)input.click()}
 async function drawQrImageFile(file,canvas){const ctx=canvas.getContext('2d');if(window.createImageBitmap){const bitmap=await createImageBitmap(file);canvas.width=bitmap.width;canvas.height=bitmap.height;ctx.drawImage(bitmap,0,0);if(bitmap.close)bitmap.close();return}const url=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file)});await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;ctx.drawImage(img,0,0);resolve()};img.onerror=()=>reject(new Error('图片读取失败'));img.src=url})}
-async function decodeQrImageFile(event){const file=event.target.files&&event.target.files[0];event.target.value='';if(!file)return;const box=document.getElementById('qrScanBox');if(box){box.style.display='block';box.innerHTML='<div class="sync-summary">正在识别相册中的二维码...</div>'}try{const canvas=document.getElementById('qrCanvas')||document.createElement('canvas');await drawQrImageFile(file,canvas);const ctx=canvas.getContext('2d');let text='';try{if('BarcodeDetector' in window){const detector=new BarcodeDetector({formats:['qr_code']});const codes=await detector.detect(canvas);if(codes&&codes[0])text=codes[0].rawValue}}catch(e){}if(!text&&typeof jsQR!=='undefined'){const img=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(img.data,img.width,img.height);if(code)text=code.data}if(text){document.getElementById('syncRemote').value=text;syncStatus('已从相册识别二维码');toast('已填入对方配对码');return}showCameraDeniedHelp('没有识别到二维码，请换一张更清晰的图片。')}catch(error){showCameraDeniedHelp('相册识别失败：'+(error.message||'请重试'))}}
+async function decodeQrImageFile(event){
+  const file=event.target.files&&event.target.files[0];event.target.value='';if(!file)return;
+  const box=document.getElementById('qrScanBox');if(box){box.style.display='block';box.innerHTML='<div class="sync-summary">正在识别相册中的二维码...</div>'}
+  try{
+    const canvas=document.getElementById('qrCanvas')||document.createElement('canvas');
+    await drawQrImageFile(file,canvas);
+    const scale=Math.min(1,1024/Math.max(canvas.width,canvas.height));
+    if(scale<1){const small=document.createElement('canvas');small.width=Math.max(1,Math.round(canvas.width*scale));small.height=Math.max(1,Math.round(canvas.height*scale));small.getContext('2d').drawImage(canvas,0,0,small.width,small.height);canvas.width=small.width;canvas.height=small.height;canvas.getContext('2d').drawImage(small,0,0)}
+    const ctx=canvas.getContext('2d');let text='';
+    try{if('BarcodeDetector' in window){if(!qrDetector)qrDetector=new BarcodeDetector({formats:['qr_code']});const codes=await qrDetector.detect(canvas);if(codes&&codes[0])text=codes[0].rawValue}}catch(e){}
+    if(!text&&typeof jsQR!=='undefined'){const img=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(img.data,img.width,img.height);if(code)text=code.data}
+    if(text){document.getElementById('syncRemote').value=text;syncStatus('已从相册识别二维码');toast('已填入对方配对码');return}
+    showCameraDeniedHelp('没有识别到二维码，请换一张更清晰的图片。')
+  }catch(error){showCameraDeniedHelp('相册识别失败：'+(error.message||'请重试'))}
+}
 function stopQrScan(){if(qrScanTimer){clearTimeout(qrScanTimer);qrScanTimer=null}if(qrStream){qrStream.getTracks().forEach(t=>t.stop());qrStream=null}const box=document.getElementById('qrScanBox');if(box)box.style.display='none'}
 async function scanQrFrame(){
   const video=document.getElementById('qrVideo'),canvas=document.getElementById('qrCanvas');
   if(!video||!canvas||!qrStream)return;
   if(video.readyState>=2){
-    canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+    const scale=Math.min(1,720/Math.max(video.videoWidth,video.videoHeight));
+    canvas.width=Math.max(1,Math.round(video.videoWidth*scale));canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
     const ctx=canvas.getContext('2d');ctx.drawImage(video,0,0,canvas.width,canvas.height);
     let text='';
     try{
-      if('BarcodeDetector' in window){const detector=new BarcodeDetector({formats:['qr_code']});const codes=await detector.detect(canvas);if(codes&&codes[0])text=codes[0].rawValue}
+      if('BarcodeDetector' in window){if(!qrDetector)qrDetector=new BarcodeDetector({formats:['qr_code']});const codes=await qrDetector.detect(canvas);if(codes&&codes[0])text=codes[0].rawValue}
     }catch(e){}
     if(!text&&typeof jsQR!=='undefined'){const img=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(img.data,img.width,img.height);if(code)text=code.data}
     if(text){document.getElementById('syncRemote').value=text;stopQrScan();syncStatus('已识别二维码，配对码已填入');toast('已填入对方配对码');return}
