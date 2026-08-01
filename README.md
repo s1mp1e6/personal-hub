@@ -29,6 +29,14 @@ v1-local-first 的目标：
 
 如果用 GitHub Pages，可以把 `site/` 目录内容放到仓库根目录，或在 GitHub Pages 设置中选择对应发布分支。
 
+## 短码联动与免费信令
+
+- 同步弹窗内新增“短码联动”：双方输入一个6位数字即可完成配对，省去输入长配对码的麻烦。
+- 实现方式：Cloudflare Workers+Durable Object 免费中继，仅转发SDP/ICE配对信息；业务数据仍通过WebRTC点对点传输。
+- 费用：Cloudflare免费计划每天10万次请求，当前轮询方案每次配对约400-600次请求，日用完全免费。
+- 部署：见`signaling`目录下的README；部署后把URL填入`shortRelayUrl()`即可。
+- 不使用短码时，仍可以用二维码/复制粘贴完成完全离线配对。
+
 ## 验证
 
 自动化验证脚本在 `test-tools/` 中，浏览器依赖放在 F 盘项目目录下。运行：

@@ -11,10 +11,13 @@
     "verify:storage-v2": "node verify-storage-v2.js",
     "verify:sync-v2": "node verify-sync-v2.js",
     "verify:qr": "node verify-qr-scanner.js",
+    "verify:ux": "node verify-ux-fixes.js",
     "verify:safety": "node verify-safety-flows.js",
     "test:sync-core": "node --test sync-core.test.js",
     "test:recovery-core": "node --test recovery-core.test.js",
-    "test:core": "node --test sync-core.test.js recovery-core.test.js"
+    "test:core": "node --test sync-core.test.js recovery-core.test.js",
+    "verify:shortcode": "node verify-shortcode.js",
+    "test:relay": "node --test relay.test.js"
   },
   "keywords": [],
   "author": "",
@@ -25,5 +28,8 @@
     "lz-string": "^1.5.0",
     "playwright": "^1.62.0",
     "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "ws": "^8.21.1"
   }
 }

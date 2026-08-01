@@ -4,3 +4,5 @@ verification/
 .superpowers/
 .worktrees/
 *.log
+signaling/node_modules/
+signaling/.wrangler/

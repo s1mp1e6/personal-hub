@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -8,13 +8,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="工作台">
+<meta name="description" content="本机优先的个人工作台：任务、文献、实验、阅读、日记与近距离设备同步，数据默认保存在当前设备。">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232383e2'/%3E%3Cpath d='M32 13l5.2 13.8L51 32l-13.8 5.2L32 51l-5.2-13.8L13 32l13.8-5.2L32 13z' fill='white'/%3E%3C/svg%3E">
 <title>我的工作台 · Personal Hub</title>
 <style>
   :root{
     --bg:#f5f3ef;--bg2:#efeae3;--sidebar:#fffdf8;--card:#ffffff;
-    --ink:#37352f;--ink-soft:#6b6a66;--ink-faint:#9b9a97;
+    --ink:#37352f;--ink-soft:#6b6a66;--ink-faint:#6f6d68;
     --line:#ececec;--line-strong:#e0e0e0;
     --accent:#2383e2;--accent-soft:#e8f1fb;
     --green:#0f7b3d;--green-soft:#e8f5ee;
@@ -29,14 +30,14 @@
   }
   :root[data-theme="light"]{
     --bg:#f7f8fb;--bg2:#eef2f7;--sidebar:#ffffff;--card:#ffffff;
-    --ink:#23272f;--ink-soft:#5d6472;--ink-faint:#98a1b2;
+    --ink:#23272f;--ink-soft:#5d6472;--ink-faint:#667085;
     --line:#e7ebf0;--line-strong:#d8dee8;
     --accent:#2563eb;--accent-soft:#e8efff;
     --shadow:0 1px 2px rgba(15,23,42,.04),0 8px 22px rgba(15,23,42,.06);
   }
   :root[data-theme="dark"]{
     --bg:#171717;--bg2:#22211f;--sidebar:#1f1f1d;--card:#242424;
-    --ink:#f1eee8;--ink-soft:#c5c0b8;--ink-faint:#8f8981;
+    --ink:#f1eee8;--ink-soft:#c5c0b8;--ink-faint:#a39c94;
     --line:#33322f;--line-strong:#46433e;
     --accent:#6aa8ff;--accent-soft:#1f3248;
     --green:#66d58a;--green-soft:#1c3524;
@@ -50,7 +51,7 @@
   }
   :root[data-theme="forest"]{
     --bg:#f2f6f1;--bg2:#e7efe4;--sidebar:#fbfdf8;--card:#ffffff;
-    --ink:#273126;--ink-soft:#657060;--ink-faint:#95a08f;
+    --ink:#273126;--ink-soft:#657060;--ink-faint:#687260;
     --line:#e1e8dc;--line-strong:#cfd9c7;
     --accent:#2f7d55;--accent-soft:#e2f2e9;
     --green:#16734a;--green-soft:#e2f2e9;
@@ -187,6 +188,8 @@
   /* 卡片列表（纵向单列）*/
   .card-list{display:flex;flex-direction:column;gap:10px;max-width:780px;margin:0 auto}
   .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .load-more{display:block;margin:16px auto;padding:10px 18px;border-radius:8px;font-size:12px;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);min-height:40px}
+  .load-more:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
   .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid rgba(0,0,0,.02);overflow:hidden;display:flex;transition:all .15s;position:relative}
   .card-list .card{flex-direction:row;align-items:stretch}
   .card-list .card .drag-handle{width:30px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);cursor:grab;font-size:16px;flex-shrink:0;background:var(--bg);border-right:1px solid var(--line);user-select:none}
@@ -298,6 +301,9 @@
   .sync-code-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .sync-code-tools .btn{min-height:42px}
   .sync-code-compact textarea{min-height:72px;font-size:12px}
+.sync-short-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.sync-short-code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:30px;letter-spacing:8px;text-align:center;padding:14px 8px;border:1px dashed var(--line-strong);border-radius:8px;background:var(--card);color:var(--accent);user-select:all}
+.sync-relay-note{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.5}
   .sync-connect-help{margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--orange-soft);border:1px solid var(--line-strong);font-size:12px;color:var(--ink-soft)}
   .sync-connect-help .sync-summary{margin:6px 0 8px}
   .qr-scan-stage{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:#111;margin-top:10px;box-shadow:inset 0 0 0 1px var(--line)}
@@ -450,6 +456,7 @@
     .modal .mfoot > span:last-child{display:grid!important;grid-template-columns:1fr 1fr}
     .sync-pairing{grid-template-columns:1fr}
     .sync-code-tools{grid-template-columns:1fr}
+    .sync-short-grid{grid-template-columns:1fr}
     .input-mode{flex-direction:column}
     .attach-tabs{display:grid;grid-template-columns:repeat(3,1fr)}
     .hw-overlay{padding:0}
@@ -476,10 +483,10 @@
       <button onclick="openStorageInfo()" title="查看本机数据说明" aria-label="查看本机数据与备份说明"><span id="storageInfo">本机</span></button>
     </div>
   </aside>
-  <div class="main">
+  <main class="main">
     <div class="topbar"><h2 id="viewTitle"><span class="h-ico ico c1">🏠</span>桌面</h2><div class="right"></div></div>
     <div class="content" id="content"></div>
-  </div>
+  </main>
 </div>
 <button class="fab" id="fab" onclick="openItemModal()" aria-label="新增内容">＋</button>
 
@@ -552,14 +559,16 @@ const STATE_WRITE_LOCK='personal-hub-state-write';
 const PENDING_JOURNAL_KEY='personal_hub_pending_state';
 let state=loadDefaultState();
 let currentMod='dashboard',detailId=null,editingId=null,inputMode='text',pendingAttach=null,pendingAttachType=null,pendingAttachPreview=null,searchQuery='',showArchived=false;
+let listLimit=200,searchDebounceTimer=null;
 let hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};
 let hwHeight=220,lpTimer=null,dragSrc=null,lpContext=null,editingWidget=null,editingMeta=null,backupDirHandle=null;
 let deviceId=null,persistedShadow=null,persistedStateMeta={revision:0,token:null},saveChain=Promise.resolve(),stateRevision=0,persistedRevision=0,saveQueued=false,hydrated=false,hydrationPromise=null;
 let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null,qrDetector=null,syncConnectTimer=null;
 let syncRole=null,syncRemoteManifest=null,syncLocalManifest=null,syncPreviewPlan=null,syncMode='safe',syncLastRecovery=null,syncPeerScope=null;
 let syncOfferedScope=null,syncFrozenManifest=null,syncOfferedIdentityIds=new Set(),syncLastResult=null,syncSessionId=0;
+let syncShort=null;
 const SYNC_PROTOCOL=2,syncProtocolTrace=[];
-const fileUrlCache={};
+const fileUrlCache=new Map(),FILE_URL_CACHE_MAX=80;
 
 function loadDefaultState(){
   return {
@@ -657,13 +666,15 @@ async function saveFileBlob(file,kind){
 function isFileRef(v){return v&&typeof v==='object'&&v.fileId}
 async function fileRefUrl(ref){
   if(!isFileRef(ref))return ref||'';
-  if(fileUrlCache[ref.fileId])return fileUrlCache[ref.fileId];
+  if(fileUrlCache.has(ref.fileId))return fileUrlCache.get(ref.fileId);
   const rec=await idbStoreGet(FILE_STORE,ref.fileId);
   if(!rec||!rec.blob)return '';
   const url=URL.createObjectURL(rec.blob);
-  fileUrlCache[ref.fileId]=url;
+  if(fileUrlCache.size>=FILE_URL_CACHE_MAX){const oldest=fileUrlCache.keys().next().value;if(oldest!==undefined){URL.revokeObjectURL(fileUrlCache.get(oldest));fileUrlCache.delete(oldest)}}
+  fileUrlCache.set(ref.fileId,url);
   return url;
 }
+function resetAttachDraft(){if(pendingAttachPreview){URL.revokeObjectURL(pendingAttachPreview);pendingAttachPreview=null}pendingAttach=null;pendingAttachType=null}
 function renderImgRef(ref,label,cls=''){
   if(!ref)return '';
   if(isFileRef(ref))return `<img class="${cls}" data-file-id="${esc(ref.fileId)}" alt="${esc(label||ref.name||'图片')}" style="width:100%;max-height:400px;object-fit:cover;border-radius:10px;cursor:pointer">`;
@@ -891,7 +902,7 @@ function saveModuleMeta(){
   closeModal();editingMeta=null;toast('模块信息已更新');
 }
 function switchMod(mid){
-  currentMod=mid;detailId=null;searchQuery='';showArchived=false;renderNav();renderContent();
+  clearTimeout(searchDebounceTimer);currentMod=mid;detailId=null;searchQuery='';showArchived=false;listLimit=200;renderNav();renderContent();
   const m=state.modules[mid];
   document.getElementById('viewTitle').innerHTML=`<span class="h-ico ico ${m.color||'c1'}">${m.icon}</span>${esc(m.name)}`;
   if(window.innerWidth<=900)closeSidebar();
@@ -918,28 +929,31 @@ function renderContent(){
     el.innerHTML=renderItemDetail(m);
     bindTimelineLp();
   }else if(m.type==='experiment'||m.type==='book'){
-    const items=filteredItems(m);
-    el.innerHTML=renderListTools(m)+`${items.length?`<div class="card-list">${items.map(item=>renderListCard(item,m.type)).join('')}</div>`:empty('没有匹配的内容')}`;
+    const items=filteredItems(m),{visible,remaining}=pagedItems(items);
+    el.innerHTML=renderListTools(m)+`${visible.length?`<div class="card-list">${visible.map(item=>renderListCard(item,m.type)).join('')}</div>`+renderMoreButton(remaining):empty('没有匹配的内容')}`;
   }else if(m.type==='paper'){
-    const items=filteredItems(m);
-    el.innerHTML=renderListTools(m)+`${items.length?`<div class="card-grid">${items.map(item=>renderCard(item,m.type)).join('')}</div>`:empty('没有匹配的内容')}`;
+    const items=filteredItems(m),{visible,remaining}=pagedItems(items);
+    el.innerHTML=renderListTools(m)+`${visible.length?`<div class="card-grid">${visible.map(item=>renderCard(item,m.type)).join('')}</div>`+renderMoreButton(remaining):empty('没有匹配的内容')}`;
   }else{
-    const items=filteredItems(m);
-    el.innerHTML=renderListTools(m)+`${items.length?`<div class="card-list">${items.map(item=>renderCard(item,m.type)).join('')}</div>`:empty('没有匹配的内容')}`;
+    const items=filteredItems(m),{visible,remaining}=pagedItems(items);
+    el.innerHTML=renderListTools(m)+`${visible.length?`<div class="card-list">${visible.map(item=>renderCard(item,m.type)).join('')}</div>`+renderMoreButton(remaining):empty('没有匹配的内容')}`;
   }
   bindCardInteractions();updateAddButton();resolveFileRefs();
 }
 function itemSearchText(item,type){return [getTitle(item,type),item.txt,item.title,item.name,item.info,item.summary,item.content,item.author,(item.tags||[]).join(' '),(item.points||[]).join(' ')].filter(Boolean).join(' ').toLowerCase()}
 function filteredItems(m){const q=searchQuery.trim().toLowerCase();return (m.items||[]).filter(item=>(showArchived||!item.archived)&&(!q||itemSearchText(item,m.type).includes(q)))}
+function pagedItems(items){const visible=items.slice(0,listLimit);return {visible,remaining:items.length-visible.length}}
+function renderMoreButton(remaining){return remaining>0?`<button class="load-more" onclick="loadMoreItems()" aria-label="加载更多内容">加载更多（剩余 ${remaining} 条）</button>`:''}
+function loadMoreItems(){listLimit+=200;renderContent()}
 function renderListTools(m){
   if(!m.items)return '';
   const archived=(m.items||[]).filter(x=>x.archived).length;
   const canArchive=m.type==='task'||m.type==='todo';
   return `<div class="list-tools"><input id="listSearch" value="${esc(searchQuery)}" oninput="setSearch(this.value)" placeholder="搜索 ${esc(m.name)}..." aria-label="搜索当前模块"><button class="${showArchived?'active':''}" onclick="toggleArchived()" aria-label="显示或隐藏归档内容">${showArchived?'隐藏归档':'显示归档'}${archived?` (${archived})`:''}</button>${canArchive?`<button onclick="archiveCompleted()" aria-label="归档已完成项目">归档已完成</button>`:''}</div>`;
 }
-function setSearch(v){searchQuery=v;renderContent();const input=document.getElementById('listSearch');if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length)}}
-function toggleArchived(){showArchived=!showArchived;renderContent()}
-function archiveCompleted(){const m=state.modules[currentMod];if(!m||!(m.type==='task'||m.type==='todo'))return;const done=(m.items||[]).filter(x=>x.done&&!x.archived);if(!done.length){toast('没有可归档的已完成项');return}done.forEach(x=>x.archived=true);save();renderContent();renderNav();toast(`已归档 ${done.length} 项`)}
+function setSearch(v){searchQuery=v;listLimit=200;clearTimeout(searchDebounceTimer);searchDebounceTimer=setTimeout(()=>{renderContent();const input=document.getElementById('listSearch');if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length)}},180)}
+function toggleArchived(){showArchived=!showArchived;listLimit=200;renderContent()}
+function archiveCompleted(){const m=state.modules[currentMod];if(!m||!(m.type==='task'||m.type==='todo'))return;const done=(m.items||[]).filter(x=>x.done&&!x.archived);if(!done.length){toast('没有可归档的已完成项');return}done.forEach(x=>x.archived=true);save();listLimit=200;renderContent();renderNav();toast(`已归档 ${done.length} 项`)}
 function updateTopLeftBtn(){
   const mt=document.getElementById('menuToggle');const bk=document.getElementById('backBtn');
   if(detailId){mt.style.display='none';bk.style.display='flex';bk.classList.add('active')}
@@ -1013,9 +1027,14 @@ function saveWidget(){
 }
 
 /* 实验/书籍列表卡片（含开始日期）*/
-function renderListCard(item,type){
+function stableBookColor(id){
   const colors=['#6940a5,#2383e2','#d9730d,#e03e3e','#0f7b3d,#2383e2','#ad1a72,#6940a5','#0d7d7d,#2383e2'];
-  const color=colors[Math.floor(Math.random()*colors.length)];
+  let hash=0;const s=String(id||'');
+  for(let i=0;i<s.length;i++)hash=(hash*31+s.charCodeAt(i))>>>0;
+  return colors[hash%colors.length];
+}
+function renderListCard(item,type){
+  const color=stableBookColor(item.id);
   const startDate=item.startDate||item.createdAt||'';
   if(type==='experiment'){
     const c=item.progress>=100?'var(--green)':item.progress>=50?'var(--accent)':'var(--orange)';
@@ -1407,7 +1426,7 @@ function saveUnifiedEdit(){
 
 /* 模态框 */
 function openItemModal(id){
-  editingId=id||null;inputMode='text';pendingAttach=null;pendingAttachType=null;pendingAttachPreview=null;hwHeight=220;
+  editingId=id||null;inputMode='text';resetAttachDraft();hwHeight=220;
   const m=state.modules[currentMod];const item=id?m.items.find(x=>x.id===id):null;
   document.getElementById('modalTitle').textContent=item?`编辑 - ${m.name}`:`新增 - ${m.name}`;
   const isListType=m.type==='experiment'||m.type==='book';
@@ -1418,7 +1437,7 @@ function openItemModal(id){
   else document.getElementById('modeHint').textContent='保存后点击卡片进入详情，按时间轴添加记录';
 }
 function openLogModal(parentId,logId){
-  editingId=logId||null;detailId=parentId;inputMode='text';pendingAttach=null;pendingAttachType=null;pendingAttachPreview=null;hwHeight=220;
+  editingId=logId||null;detailId=parentId;inputMode='text';resetAttachDraft();hwHeight=220;
   const m=state.modules[currentMod];const item=m.items.find(x=>x.id===parentId);
   const log=logId?(item.logs||[]).find(x=>x.id===logId):null;
   document.getElementById('modalTitle').textContent=logId?`编辑记录`:`添加记录`;
@@ -1583,7 +1602,7 @@ function saveLogForm(){
   if(editingId){const idx=(parent.logs||[]).findIndex(x=>x.id===editingId);if(idx>=0)parent.logs[idx]=newLog}else{(parent.logs=parent.logs||[]).push(newLog)}
   recalcSummary(parent,type);pendingAttach=null;closeModal();renderContent();renderNav();toast(editingId?'已更新':'已添加');
 }
-function closeModal(){stopQrScan();document.querySelector('.modal').classList.remove('modal-wide');document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;pendingAttach=null;pendingAttachType=null;pendingAttachPreview=null;hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
+function closeModal(){stopShortRelay();stopQrScan();document.querySelector('.modal').classList.remove('modal-wide');document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;resetAttachDraft();hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
 document.getElementById('mask').addEventListener('click',e=>{if(e.target.id==='mask')closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('hwOverlay').classList.remove('show')}});
 
@@ -1740,7 +1759,7 @@ function openSyncModal(){
   syncRemoteManifest=null;syncLocalManifest=null;syncPreviewPlan=null;syncMode='safe';syncLastRecovery=null;
   const legacyOpen=new URLSearchParams(location.search).has('sync')?' open':'';
   document.querySelector('.modal').classList.add('modal-wide');
-  document.getElementById('modalBody').innerHTML=`<div class="sync-steps"><div class="sync-step active" data-sync-step="connect">连接设备</div><div class="sync-step" data-sync-step="compare">比较数据</div><div class="sync-step" data-sync-step="confirm">确认同步</div></div><section id="syncScopePane"><button class="btn ghost" type="button" onclick="toggleSyncScope()">选择同步内容</button><div id="syncScopeControls" style="display:none"><div class="sync-scope-actions"><button class="btn ghost" type="button" onclick="setAllSyncModules(true)">全部选择</button><button class="btn ghost" type="button" onclick="setAllSyncModules(false)">全部不选</button></div><div class="sync-module-list">${Object.entries(state.modules).map(([id,m])=>`<label class="sync-option"><input type="checkbox" data-sync-module value="${esc(id)}" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">${esc(m.name)}</span><span class="sync-option-meta">${(m.items||[]).length} 条</span></span></label>`).join('')}</div><label class="sync-option"><input type="checkbox" id="syncScopeSettings" onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步设置</span><span class="sync-option-meta">主题和工作台偏好</span></span></label><label class="sync-option"><input type="checkbox" id="syncScopeAttachments" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步附件</span><span class="sync-option-meta">仅传输所选记录引用的文件</span></span></label></div><div class="sync-summary" id="syncScopeSummary"></div></section><section id="syncComparePane" style="display:none"></section><div class="sync-pairing"><section class="sync-panel"><h4>本机二维码</h4><div class="sync-option-meta">第一台设备点生成，另一台设备扫码。</div><div id="syncQr" class="sync-qr-box">点击下方按钮生成二维码</div><div class="sync-code-tools"><button class="btn primary" onclick="syncCreateOffer()">生成二维码</button><button class="btn ghost" onclick="copySyncLocalCode()">复制本机码</button></div></section><section class="sync-panel"><h4>扫码或粘贴对方码</h4><div class="sync-option-meta">第二台扫码后生成回传二维码；第一台扫回传码后连接。</div><div class="sync-code-tools" style="margin:10px 0"><button class="btn primary" onclick="startQrScan()">扫码接收</button><button class="btn ghost" onclick="openQrImagePicker()">相册识别</button></div><div id="qrScanBox" style="display:none"><div class="qr-scan-stage"><video id="qrVideo" autoplay playsinline muted></video><canvas id="qrCanvas" class="qr-canvas"></canvas><div class="qr-scan-frame"><i></i><i></i><i></i><i></i></div><div class="qr-scan-line"></div></div><div id="qrHint" class="qr-scan-hint">摄像头打开后，请把二维码放在画面中央</div></div><div class="field sync-code-compact"><label>对方配对码</label><textarea id="syncRemote" placeholder="扫码后会自动填入，也可以粘贴"></textarea></div><div class="sync-code-tools"><button class="btn ghost" onclick="syncCreateAnswer()">生成回传二维码</button><button class="btn ghost" onclick="syncAcceptAnswer()">连接回传码</button></div></section></div><details${legacyOpen} style="margin-top:12px"><summary style="cursor:pointer;color:var(--ink-soft);font-size:12px">高级：查看长码 / 手动发送备份</summary><div style="font-size:12px;color:var(--ink-faint);margin:8px 0">二维码由本机页面生成，不调用云服务；摄像头只在本机识别二维码。</div><div class="field sync-code-compact"><label>本机配对码</label><textarea id="syncLocal" readonly></textarea></div><button class="btn ghost" style="width:100%" onclick="syncSendBackup()">发送当前备份</button></details><div id="syncStatus" style="font-size:12px;color:var(--ink-faint);margin-top:10px">未连接</div><div id="syncConnectHelp"></div><input id="qrImageInput" type="file" accept="image/*" style="display:none">`;
+  document.getElementById('modalBody').innerHTML=`<div class="sync-steps"><div class="sync-step active" data-sync-step="connect">连接设备</div><div class="sync-step" data-sync-step="compare">比较数据</div><div class="sync-step" data-sync-step="confirm">确认同步</div></div><section id="syncScopePane"><button class="btn ghost" type="button" onclick="toggleSyncScope()">选择同步内容</button><div id="syncScopeControls" style="display:none"><div class="sync-scope-actions"><button class="btn ghost" type="button" onclick="setAllSyncModules(true)">全部选择</button><button class="btn ghost" type="button" onclick="setAllSyncModules(false)">全部不选</button></div><div class="sync-module-list">${Object.entries(state.modules).map(([id,m])=>`<label class="sync-option"><input type="checkbox" data-sync-module value="${esc(id)}" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">${esc(m.name)}</span><span class="sync-option-meta">${(m.items||[]).length} 条</span></span></label>`).join('')}</div><label class="sync-option"><input type="checkbox" id="syncScopeSettings" onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步设置</span><span class="sync-option-meta">主题和工作台偏好</span></span></label><label class="sync-option"><input type="checkbox" id="syncScopeAttachments" checked onchange="updateSyncScopeSummary()"><span class="sync-option-main"><span class="sync-option-title">同步附件</span><span class="sync-option-meta">仅传输所选记录引用的文件</span></span></label></div><div class="sync-summary" id="syncScopeSummary"></div></section><section id="syncComparePane" style="display:none"></section><div class="sync-pairing"><section class="sync-panel"><h4>本机二维码</h4><div class="sync-option-meta">第一台设备点生成，另一台设备扫码。</div><div id="syncQr" class="sync-qr-box">点击下方按钮生成二维码</div><div class="sync-code-tools"><button class="btn primary" onclick="syncCreateOffer()">生成二维码</button><button class="btn ghost" onclick="copySyncLocalCode()">复制本机码</button></div></section><section class="sync-panel"><h4>扫码或粘贴对方码</h4><div class="sync-option-meta">第二台扫码后生成回传二维码；第一台扫回传码后连接。</div><div class="sync-code-tools" style="margin:10px 0"><button class="btn primary" onclick="startQrScan()">扫码接收</button><button class="btn ghost" onclick="openQrImagePicker()">相册识别</button></div><div id="qrScanBox" style="display:none"><div class="qr-scan-stage"><video id="qrVideo" autoplay playsinline muted></video><canvas id="qrCanvas" class="qr-canvas"></canvas><div class="qr-scan-frame"><i></i><i></i><i></i><i></i></div><div class="qr-scan-line"></div></div><div id="qrHint" class="qr-scan-hint">摄像头打开后，请把二维码放在画面中央</div></div><div class="field sync-code-compact"><label>对方配对码</label><textarea id="syncRemote" placeholder="扫码后会自动填入，也可以粘贴"></textarea></div><div class="sync-code-tools"><button class="btn ghost" onclick="syncCreateAnswer()">生成回传二维码</button><button class="btn ghost" onclick="syncAcceptAnswer()">连接回传码</button></div></section></div><section class="sync-short-pane" style="margin-top:14px"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap"><h4 style="font-size:13px">短码联动（免输入长码）</h4><span style="font-size:11px;color:var(--ink-faint)">中继只传配对信息，不传你的数据</span></div><div class="sync-short-grid"><section class="sync-panel"><h4>创建设备码</h4><div class="sync-option-meta">本机创建房间，另一台输入 6 位码加入。</div><div class="sync-code-tools" style="margin:10px 0"><button class="btn primary" type="button" onclick="syncShortCreate()">创建短码</button><button class="btn ghost" type="button" onclick="copyShortCode()">复制短码</button></div><div id="shortCodeDisplay" class="sync-short-code">------</div><div class="sync-relay-note" id="shortRelayState">未创建</div></section><section class="sync-panel"><h4>加入对方设备</h4><div class="sync-option-meta">输入另一台设备显示的 6 位数字码。</div><div class="field sync-code-compact"><label>对方短码</label><input id="shortJoinCode" inputmode="numeric" maxlength="6" placeholder="382914" oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)" aria-label="对方短码"></div><div class="sync-code-tools"><button class="btn primary" type="button" onclick="syncShortJoin()">加入并连接</button></div><div class="sync-relay-note">当前中继：<span id="shortRelayName">未配置</span></div></section></div></section><details${legacyOpen} style="margin-top:12px"><summary style="cursor:pointer;color:var(--ink-soft);font-size:12px">高级：查看长码 / 手动发送备份</summary><div style="font-size:12px;color:var(--ink-faint);margin:8px 0">二维码由本机页面生成，不调用云服务；摄像头只在本机识别二维码。</div><div class="field sync-code-compact"><label>本机配对码</label><textarea id="syncLocal" readonly></textarea></div><button class="btn ghost" style="width:100%" onclick="syncSendBackup()">发送当前备份</button></details><div id="syncStatus" style="font-size:12px;color:var(--ink-faint);margin-top:10px">未连接</div><div id="syncConnectHelp"></div><input id="qrImageInput" type="file" accept="image/*" style="display:none">`;
   const qrImageInput=document.getElementById('qrImageInput');if(qrImageInput)qrImageInput.onchange=decodeQrImageFile;
   updateSyncScopeSummary();
   document.getElementById('modeHint').textContent='双方都确认后才写入；中断不会修改本机数据';
@@ -1771,6 +1790,166 @@ function decodeDesc(code){if(code.startsWith('ph1.')){const body=code.slice(4);c
 async function syncCreateOffer(){try{syncRole='offerer';syncStatus('正在创建发送码...');const pc=setupSyncPc();setupSyncChannel(pc.createDataChannel('backup'));await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);syncStatus('发送码已生成，复制或扫码给另一台设备')}catch(e){syncStatus('创建发送码失败：'+e.message)}}
 async function syncCreateAnswer(){try{const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请先粘贴发送码');return}syncRole='answerer';syncStatus('正在生成接收码...');const pc=setupSyncPc();await pc.setRemoteDescription(decodeDesc(remote));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);armSyncConnectTimeout('等待对方连接超时：对方 60 秒内没有建立连接，请重新生成接收码。',60);syncStatus('接收码已生成，等待对方扫码连接...')}catch(e){handleSyncConnectFailure('生成接收码失败：'+e.message)}}
 async function syncAcceptAnswer(){try{if(!syncPc){toast('请先创建发送码');return}const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请粘贴接收码');return}clearSyncConnectHelp();syncStatus('正在连接...');await syncPc.setRemoteDescription(decodeDesc(remote));armSyncConnectTimeout('连接超时：25 秒内未建立数据通道，请重新开始配对。',25);syncStatus('正在连接...（最长约25秒）')}catch(e){handleSyncConnectFailure('连接失败：'+e.message)}}
+
+
+function shortRelayUrl(){try{return new URL(new URLSearchParams(location.search).get('relay')||'https://personal-hub-shortcode-relay.zal-pc-remote.workers.dev').toString().replace(/\/+$/,'')}catch(e){return ''}}
+function shortRelayName(){try{return new URL(shortRelayUrl()).hostname}catch(e){return '未配置'}}
+async function shortRelayRequest(path,options={}){const relay=shortRelayUrl();if(!relay)throw new Error('短码中继还没有部署，请在页面中配置/APIURL或用GitHub Actions配置');const response=await fetch(relay+path,Object.assign({headers:{'content-type':'application/json'}},options));let data=null;try{data=await response.json()}catch(e){}if(!response.ok){throw new Error((data&&data.error)||('中继返回 '+response.status))}return data||{}}
+function shortCodeId(){return 'sc-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10)}
+async function syncShortCreate(){
+  if(!navigator.onLine){toast('当前离线，短码联动需要联网中继');return}
+  stopShortRelay();
+  const clientId=shortCodeId();
+  try{
+    syncStatus('正在创建短码房间...');
+    const created=await shortRelayRequest('/api/room',{method:'POST',body:JSON.stringify({clientId})});
+    syncShort={role:'creator',clientId,token:created.token,code:created.code,peer:0,since:0,seen:new Set(),poller:null,stopped:false,offerSent:false,pendingIce:[]};
+    const display=document.getElementById('shortCodeDisplay');
+    if(display)display.textContent=created.code;
+    const relayName=document.getElementById('shortRelayName');
+    if(relayName)relayName.textContent=shortRelayName();
+    const stateEl=document.getElementById('shortRelayState');
+    if(stateEl)stateEl.textContent='已创建，有效期约 5 分钟';
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(created.code).catch(()=>{})}
+    syncStatus('等待另一台设备加入'+created.code+'...');
+    armShortRelayTimeout('等待对方加入超时：45 秒内没有设备加入，请重新创建。',45);
+    await startShortRelayPc();
+    startShortRelayPolling();
+  }catch(error){
+    syncShort=null;syncStatus('创建短码失败：'+error.message);toast('创建短码失败：'+error.message);
+  }
+}
+async function syncShortJoin(){
+  if(!navigator.onLine){toast('当前离线，短码联动需要联网中继');return}
+  const input=document.getElementById('shortJoinCode');
+  const code=(input?input.value:'').trim();
+  if(!/^[0-9]{6}$/.test(code)){toast('请输入 6 位数字短码');return}
+  stopShortRelay();
+  const clientId=shortCodeId();
+  try{
+    syncStatus('正在加入短码房间...');
+    const joined=await shortRelayRequest('/api/room/'+code+'/join',{method:'POST',body:JSON.stringify({clientId})});
+    syncShort={role:'joiner',clientId,token:joined.token,code,peer:1,since:0,seen:new Set(),poller:null,stopped:false,offerSent:false,pendingIce:[]};
+    const relayName=document.getElementById('shortRelayName');
+    if(relayName)relayName.textContent=shortRelayName();
+    const stateEl=document.getElementById('shortRelayState');
+    if(stateEl)stateEl.textContent='已加入 '+code;
+    syncStatus('正在加入短码房间...');
+    armShortRelayTimeout('短码连接超时：45 秒内未建立连接，请确认两台设备可直连并重试。',45);
+    await startShortRelayPc();
+    startShortRelayPolling();
+  }catch(error){
+    syncShort=null;syncStatus('加入失败：'+error.message);toast('加入失败：'+error.message);
+  }
+}
+async function startShortRelayPc(){
+  if(!syncShort||syncShort.stopped)return;
+  syncRole=syncShort.role==='creator'?'short-creator':'short-joiner';
+  const pc=setupSyncPc();
+  pc.onicecandidate=e=>{if(!syncShort||syncShort.stopped)return;if(!e.candidate)return;if(!syncShort.offerSent){syncShort.pendingIce.push(e.candidate);return}shortRelaySend('ice',JSON.stringify(e.candidate),pc)};
+  if(syncShort.role==='joiner'){
+    setupSyncChannel(pc.createDataChannel('backup'));
+    await pc.setLocalDescription(await pc.createOffer());
+    await waitIce(pc,1500);
+    if(!syncShort||syncShort.stopped)return;
+    syncShort.offerSent=true;
+    await shortRelaySend('offer',JSON.stringify(pc.localDescription),pc);
+    const pending=syncShort.pendingIce.splice(0);
+    for(const candidate of pending){if(syncShort&&!syncShort.stopped)await shortRelaySend('ice',JSON.stringify(candidate),pc)}
+  }
+}
+async function shortRelaySend(action,payload,pc){
+  if(!syncShort||syncShort.stopped)return false;
+  const msg={action,payload,msgId:shortCodeId()};
+  const result=await shortRelayRequest('/api/room/'+syncShort.code+'/send',{method:'POST',headers:{'x-relay-token':syncShort.token,'x-client-id':syncShort.clientId},body:JSON.stringify({message:msg})});
+  return !!(result&&result.relayed);
+}
+async function startShortRelayPolling(){
+  if(!syncShort||syncShort.stopped)return;
+  const poll=async()=>{
+    if(!syncShort||syncShort.stopped)return;
+    try{
+      const data=await shortRelayRequest('/api/room/'+syncShort.code+'/poll?token='+encodeURIComponent(syncShort.token)+'&clientId='+encodeURIComponent(syncShort.clientId)+'&since='+syncShort.since);
+      if(!syncShort||syncShort.stopped)return;
+      if(data.last!=null)syncShort.since=data.last;
+      for(const event of(data.events||[])){
+        if(!syncShort||syncShort.stopped)return;
+        if(syncShort.seen.has(event.seq))continue;
+        syncShort.seen.add(event.seq);
+        if(event.action==='offer'&&syncShort.role==='creator')await handleShortOffer(event.payload);
+        else if(event.action==='answer'&&syncShort.role==='joiner')await handleShortAnswer(event.payload);
+        else if(event.action==='ice')await handleShortIce(event.payload);
+      }
+      if(!syncShort||syncShort.stopped)return;
+      if(syncDc&&syncDc.readyState==='open'){syncShort.poller=null;return}
+      syncShort.poller=setTimeout(poll,1400);
+    }catch(error){
+      if(!syncShort||syncShort.stopped)return;
+      if(syncDc&&syncDc.readyState==='open'){syncShort.poller=null;return}
+      clearSyncConnectTimeout();syncStatus('短码中继中断：'+error.message);toast('短码中继中断：'+error.message);stopShortRelay();
+    }
+  };
+  syncShort.poller=setTimeout(poll,600);
+}
+async function handleShortOffer(payload){
+  if(!syncShort||syncShort.stopped||syncShort.role!=='creator')return;
+  const session=syncSessionId;
+  if(!syncPc||session!==syncSessionId)return;
+  try{
+    syncStatus('已收到对方连接请求，正在回传...');
+    await syncPc.setRemoteDescription(JSON.parse(payload));
+    await syncPc.setLocalDescription(await syncPc.createAnswer());
+    await waitIce(syncPc,1500);
+    if(!syncShort||syncShort.stopped||syncShort.role!=='creator')return;
+    await shortRelaySend('answer',JSON.stringify(syncPc.localDescription),syncPc);
+    syncStatus('已回传，等待直连建立...');
+  }catch(error){
+    clearSyncConnectTimeout();syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
+  }
+}
+async function handleShortAnswer(payload){
+  if(!syncShort||syncShort.stopped||syncShort.role!=='joiner')return;
+  const session=syncSessionId;
+  if(!syncPc||session!==syncSessionId)return;
+  try{
+    syncStatus('已收到对方应答，正在建立直连...');
+    await syncPc.setRemoteDescription(JSON.parse(payload));
+  }catch(error){
+    clearSyncConnectTimeout();syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
+  }
+}
+async function handleShortIce(payload){
+  if(!syncShort||syncShort.stopped)return;
+  const session=syncSessionId;
+  if(!syncPc||session!==syncSessionId)return;
+  try{
+    const candidate=JSON.parse(payload);
+    if(candidate&&candidate.candidate)await syncPc.addIceCandidate(candidate);
+  }catch(error){console.warn('ignored ice',error)}
+}
+function armShortRelayTimeout(message,seconds){
+  clearSyncConnectTimeout();
+  syncConnectTimer=setTimeout(()=>{
+    syncConnectTimer=null;
+    if(!syncDc||syncDc.readyState!=='open'){syncStatus(message);renderSyncConnectHelp(message);stopShortRelay()}
+  },seconds*1000);
+}
+function stopShortRelay(){
+  if(syncShort){
+    syncShort.stopped=true;
+    if(syncShort.poller){clearTimeout(syncShort.poller);syncShort.poller=null}
+    if(syncShort.role==='creator'&&syncShort.token&&syncShort.code){
+      try{shortRelayRequest('/api/room/'+syncShort.code+'/delete',{method:'POST',headers:{'x-relay-token':syncShort.token,'x-client-id':syncShort.clientId}}).catch(()=>{})}catch(e){}
+    }
+    syncShort=null;
+  }
+}
+function copyShortCode(){
+  const display=document.getElementById('shortCodeDisplay');
+  const code=display&&display.textContent&&display.textContent.trim();
+  if(!code||code==='------'){toast('请先创建短码');return}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(code).then(()=>toast('已复制短码 '+code)).catch(()=>toast('短码：'+code))}else{toast('短码：'+code)}
+}
 function sendSyncJson(obj,options={}){const ch=options.channel||syncDc;if(options.session&&options.session!==syncSessionId)return false;if(options.channel&&syncDc!==options.channel)return false;if(ch&&ch.readyState==='open'){ch.send(JSON.stringify(obj));return true}return false}
 function syncLimits(extra={}){return Object.assign({allowedModules:Object.keys(state.modules||{}),maxManifestBytes:2*1024*1024,maxEnvelopeBytes:2*1024*1024,maxAttachmentCount:2000,maxChunkBytes:20000,maxChunkCount:20000,maxOperationCount:50000,maxTransferBytes:100*1024*1024,maxAttachmentBytes:80*1024*1024},extra)}
 function sendSyncV2(message,options={}){SyncCore.validateEnvelope(message,syncLimits());syncProtocolTrace.push(message.type);return sendSyncJson(message,options)}

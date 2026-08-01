@@ -1,4 +1,4 @@
-const CACHE_NAME = 'personal-hub-v1-local-first-3';
+const CACHE_NAME = 'personal-hub-v1-local-first-4';
 const ASSETS = [
   './', './index.html', './manifest.json', './sync-core.js', './recovery-core.js',
   './vendor/qrcode.js', './vendor/jsQR.js', './vendor/lz-string.min.js'
@@ -27,8 +27,11 @@ self.addEventListener('fetch', event => {
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
         return response;
       })
-      .catch(() =>
-        caches.match(event.request).then(cached => cached || caches.match('./index.html'))
-      )
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match('./index.html');
+        return new Response('Not found', { status: 404 });
+      })
   );
 });
