@@ -334,49 +334,40 @@
   /* 设置面板 */
   .modal.settings-modal{max-width:680px}
   .settings-body{padding:4px 0 2px}
-  .settings-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
-  .settings-section:last-child{margin-bottom:0}
-  .settings-head{display:flex;align-items:flex-start;gap:11px}
   .settings-ico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
   .settings-ico svg{width:17px;height:17px}
-  .settings-title{font-size:13px;font-weight:650;color:var(--ink);line-height:1.4}
-  .settings-desc{font-size:12px;color:var(--ink-soft);line-height:1.6;margin-top:4px}
-  .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
-  .settings-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-  .settings-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .settings-overview{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+  .settings-overview-main b{display:block;font-size:17px;color:var(--ink);font-weight:650;letter-spacing:0;line-height:1.2}
+  .settings-overview-main span{display:block;font-size:11px;color:var(--ink-faint);margin-top:3px;line-height:1.45}
+  .settings-overview-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
+  .settings-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+  .settings-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .settings-overview-side small{font-size:10px;color:var(--ink-faint)}
+  .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin:0 2px 12px}
+  .settings-group{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .settings-group:last-child{margin-bottom:0}
+  .settings-row{display:flex;align-items:center;gap:12px;padding:13px 14px;min-height:56px}
+  .settings-row+.settings-row{border-top:1px solid var(--line)}
+  .settings-main{flex:1;min-width:0}
+  .settings-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
+  .settings-desc{font-size:11px;color:var(--ink-faint);line-height:1.5;margin-top:3px}
+  .settings-actions{display:flex;gap:8px;flex:0 0 auto;align-items:center}
+  .settings-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
   .settings-actions .btn svg{width:14px;height:14px;flex:0 0 auto}
-  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-  .settings-metric{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:11px 12px;min-height:70px}
-  .settings-metric b{display:block;font-size:16px;color:var(--ink);font-weight:650;letter-spacing:0}
-  .settings-metric span{font-size:11px;color:var(--ink-faint);margin-top:3px;display:block;line-height:1.45}
-  .settings-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--green-soft);color:var(--green)}
-  .settings-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .settings-theme-wrap{padding:2px 14px 14px}
+  .settings-meta{justify-content:space-between;font-size:12px;color:var(--ink-soft)}
+  .settings-meta b{font-weight:600;color:var(--ink-soft);text-align:right}
+  .settings-relay-tag{font-size:10px;font-weight:600;color:var(--green);background:var(--green-soft);border-radius:999px;padding:2px 8px;flex:0 0 auto}
   .settings-hint{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.55}
   .settings-hint.warn{color:var(--orange)}
-  .settings-version{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--ink-faint)}
-  .settings-version b{font-weight:600;color:var(--ink-soft)}
-  .settings-hero{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:linear-gradient(135deg,var(--accent-soft),var(--card) 58%);margin-bottom:12px}
-  .settings-hero-ico{width:38px;height:38px;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 3px 10px rgba(35,131,226,.25)}
-  .settings-hero-ico svg{width:19px;height:19px}
-  .settings-hero-title{font-size:15px;font-weight:700;color:var(--ink);line-height:1.3}
-  .settings-hero-sub{font-size:11px;color:var(--ink-soft);margin-top:2px;line-height:1.4}
-  .settings-app-badge{margin-left:auto;font-size:11px;font-weight:700;color:var(--accent);background:var(--card);border:1px solid var(--line-strong);padding:4px 10px;border-radius:999px;flex:0 0 auto}
-  .settings-metric.settings-local{position:relative;border:1.5px solid var(--green);background:linear-gradient(160deg,var(--green-soft),var(--card) 72%);box-shadow:inset 0 0 0 1px var(--green-soft)}
-  .settings-metric.settings-local .settings-status{background:var(--card);color:var(--green);border:1px solid var(--green)}
-  .settings-local-note{display:flex;align-items:center;gap:5px;color:var(--green)!important}
-  .settings-local-note svg{width:12px;height:12px;flex:0 0 auto}
-  .settings-modes{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .settings-modes span{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-soft);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
-  .settings-modes svg{width:12px;height:12px;color:var(--accent);flex:0 0 auto}
-  .settings-relay-tag{font-size:10px;font-weight:600;color:var(--green);background:var(--green-soft);border-radius:999px;padding:2px 8px;flex:0 0 auto}
-  .settings-modal .theme-pick{grid-template-columns:repeat(4,1fr);margin-top:12px}
-  .settings-modal .theme-pick button{position:relative;flex-direction:column;align-items:flex-start;gap:8px;padding:11px;min-height:76px}
+  .settings-modal .theme-pick{grid-template-columns:repeat(4,1fr);margin-top:10px}
+  .settings-modal .theme-pick button{position:relative;flex-direction:column;align-items:flex-start;gap:8px;padding:11px;min-height:72px}
   .settings-modal .theme-swatch{width:38px;height:26px;border-radius:7px}
   .settings-modal .theme-pick button.active .theme-swatch{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--accent)}
   .settings-modal .theme-check{position:absolute;top:8px;right:8px;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center}
   .settings-modal .theme-check svg{width:10px;height:10px}
   .settings-modal .theme-pick button.active .theme-check{display:flex}
-  @media(max-width:560px){.settings-grid{grid-template-columns:1fr}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}.settings-actions .btn{flex:1 1 auto}}
+  @media(max-width:560px){.settings-overview{flex-direction:column;align-items:flex-start}.settings-overview-side{flex-direction:row;align-items:center}.settings-row{flex-wrap:wrap}.settings-actions{width:100%}.settings-actions .btn{flex:1 1 auto}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}}
   .setting-box{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);color:var(--ink-soft)}
   .input-mode{display:flex;gap:8px;margin-bottom:16px;background:var(--bg);padding:4px;border-radius:10px}
   .input-mode button{flex:1;padding:9px;border-radius:7px;font-size:13px;color:var(--ink-soft);transition:all .12s}
@@ -916,18 +907,13 @@ function applyTheme(){const theme=normalizeTheme(state.settings&&state.settings.
 function setTheme(theme){state.settings=state.settings||{};state.settings.theme=normalizeTheme(theme);state.settings.themeExplicit=true;applyTheme();save();renderThemePick();toast('主题已切换')}
 function settingsSvg(name){
   const icons={
-    database:'<path d="M12 3c4.4 0 8 1.34 8 3s-3.6 3-8 3-8-1.34-8-3 3.6-3 8-3z"/><path d="M4 6v6c0 1.66 3.6 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.6 3 8 3s8-1.34 8-3v-6"/>',
     palette:'<path d="M12 3a9 9 0 0 0 0 18h1.5a2.25 2.25 0 0 0 1.6-3.77 2.25 2.25 0 0 1 1.6-3.83H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3z"/><circle cx="7.5" cy="10.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/>',
     folder:'<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/>',
     phone:'<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
     info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r="1"/>',
-    download:'<path d="M12 4v10"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
     trash:'<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
     check:'<path d="M5 12l5 5 9-10"/>',
-    sync:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
-    shield:'<path d="M12 3l7 2.7v5.1c0 4.5-3 8-7 10.2-4-2.2-7-5.7-7-10.2V5.7z"/><path d="M8.8 11.8l2.2 2.2 4.2-4.4"/>',
-    qr:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.6v2.6H14z"/><path d="M17.8 14H20v2.6h-2.2z"/><path d="M14 17.8h2.6V20H14z"/><path d="M17.8 17.8H20V20h-2.2z"/>',
-    link:'<path d="M9.5 12h5"/><path d="M10.6 8H8.2a4 4 0 0 0 0 8h2.4"/><path d="M13.4 8h2.4a4 4 0 0 1 0 8h-2.4"/>'
+    sync:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>'
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.info}</svg>`;
 }
@@ -1767,42 +1753,40 @@ function openStorageInfo(){
   document.querySelector('.modal').classList.add('settings-modal');
   document.getElementById('modalBody').className='mbody settings-body';
   document.getElementById('modalBody').innerHTML=`
-    <div class="settings-hero">
-      <div class="settings-hero-ico">${settingsSvg('phone')}</div>
-      <div><div class="settings-hero-title">Personal Hub</div><div class="settings-hero-sub">数据在本机 · 设备间点对点联动</div></div>
-      <span class="settings-app-badge">${APP_BUILD}</span>
+    <div class="settings-overview">
+      <div class="settings-overview-main"><b>${(size/1024).toFixed(1)} KB</b><span>当前本机数据（含附件）</span></div>
+      <div class="settings-overview-side"><span class="settings-badge">本机优先</span><small>离线可读可用</small></div>
     </div>
-    <div class="settings-section">
-      <div class="settings-head"><div class="settings-ico">${settingsSvg('database')}</div><div><div class="settings-title">本机数据</div><div class="settings-desc">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现。</div></div></div>
-      <div class="settings-grid" style="margin-top:12px">
-        <div class="settings-metric"><b>${(size/1024).toFixed(1)} KB</b><span>当前本机数据（含附件）</span></div>
-        <div class="settings-metric settings-local"><span class="settings-status">本机优先</span><span class="settings-local-note">${settingsSvg('shield')}离线可读可用</span></div>
+    <div class="settings-note">数据保存在当前浏览器的 IndexedDB 中，不会上传到服务器；换设备或清除站点数据后不会自动恢复。</div>
+    <div class="settings-group">
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('palette')}</div>
+        <div class="settings-main"><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择保存在本机。</div></div>
       </div>
+      <div class="settings-theme-wrap"><div class="theme-pick" id="themePick"></div></div>
     </div>
-    <div class="settings-section">
-      <div class="settings-head"><div class="settings-ico">${settingsSvg('palette')}</div><div><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择会保存在本机。</div></div></div>
-      <div class="theme-pick" id="themePick"></div>
-    </div>
-    <div class="settings-grid">
-      <div class="settings-section" style="margin-bottom:0">
-        <div class="settings-head"><div class="settings-ico">${settingsSvg('folder')}</div><div><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}</div></div></div>
-        <div class="settings-hint">网页不能静默写入任意默认路径；支持的浏览器可以手动授权一个文件夹，导出时优先写入那里。</div>
+    <div class="settings-group">
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('folder')}</div>
+        <div class="settings-main"><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}${fsSupported?'':' · 当前浏览器使用下载备份'}</div></div>
         <div class="settings-actions">
-          <button class="btn ghost" onclick="chooseBackupDir()" ${fsSupported?'':'disabled'} aria-label="选择本机备份文件夹">${settingsSvg('folder')}选择备份文件夹</button>
-          <button class="btn ghost" onclick="clearBackupDir()" ${backupDirHandle?'':'disabled'} aria-label="清除备份文件夹授权">${settingsSvg('trash')}清除授权</button>
+          <button class="btn ghost" onclick="chooseBackupDir()" ${fsSupported?'':'disabled'} aria-label="选择本机备份文件夹">${settingsSvg('folder')}选择文件夹</button>
+          <button class="btn ghost" onclick="clearBackupDir()" ${backupDirHandle?'':'disabled'} aria-label="清除备份文件夹授权">${settingsSvg('trash')}清除</button>
         </div>
-        ${fsSupported?'':'<div class="settings-hint warn">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
       </div>
-      <div class="settings-section" style="margin-bottom:0">
-        <div class="settings-head"><div class="settings-ico">${settingsSvg('sync')}</div><div><div class="settings-title">设备同步</div><div class="settings-desc">两台设备在本机页面内完成配对，数据通过 WebRTC 点对点传输，不经过云服务器。</div></div></div>
-        <div class="settings-modes"><span>${settingsSvg('qr')}二维码</span><span>${settingsSvg('link')}短码</span><span>${settingsSvg('shield')}数据直连</span></div>
-        <div class="settings-actions"><button class="btn primary" style="width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">${settingsSvg('phone')}打开设备同步</button></div>
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('sync')}</div>
+        <div class="settings-main"><div class="settings-title">设备同步</div><div class="settings-desc">二维码或短码配对，WebRTC 点对点直传，不经过云服务器。</div></div>
+        <div class="settings-actions"><button class="btn primary" onclick="openSyncModal()" aria-label="打开近距离设备同步">${settingsSvg('phone')}打开设备同步</button></div>
       </div>
     </div>
-    <div class="settings-section" style="margin-bottom:0">
-      <div class="settings-head"><div class="settings-ico">${settingsSvg('info')}</div><div><div class="settings-title">关于与中继</div><div class="settings-desc">短码联动通过 Cloudflare Workers 免费中继交换配对信息，数据本身仍走设备间直连。</div></div></div>
-      <div class="settings-version" style="margin-top:12px"><span>当前版本</span><b>Personal Hub ${APP_BUILD}</b></div>
-      <div class="settings-version"><span>短码中继</span><b>${relayName}</b><span class="settings-relay-tag">免费</span></div>
+    <div class="settings-group">
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('info')}</div>
+        <div class="settings-main"><div class="settings-title">关于与中继</div><div class="settings-desc">短码联动通过 Cloudflare Workers 免费中继交换配对信息，数据本身仍走设备间直连。</div></div>
+      </div>
+      <div class="settings-row settings-meta"><span>当前版本</span><b>Personal Hub ${APP_BUILD}</b></div>
+      <div class="settings-row settings-meta"><span>短码中继</span><b>${relayName}</b><span class="settings-relay-tag">免费</span></div>
     </div>`;
   renderThemePick();
   document.getElementById('modeHint').textContent='导入备份会覆盖当前本机数据';
