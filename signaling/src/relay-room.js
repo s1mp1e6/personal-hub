@@ -24,6 +24,7 @@ export class RelayRoom {
     this.state = state;
     this.env = env;
     this.room = { code: null, expiresAt: 0, peers: [null, null], events: [], seq: 0, leaving: false };
+    this.sockets = new Map();
   }
   async ensureRoom() {
     const stored = await this.state.storage.get('room');
@@ -32,7 +33,7 @@ export class RelayRoom {
       return true;
     }
     if (!stored) return false;
-    // Expired room: report and delete itself.
+    this.closeSockets();
     await this.state.storage.deleteAll();
     return false;
   }
@@ -40,10 +41,33 @@ export class RelayRoom {
     this.room.expiresAt = Date.now() + ROOM_TTL_MS;
     await this.state.storage.put('room', this.room);
   }
-  async event(action, payload, from) {
-    this.room.events.push({ seq: ++this.room.seq, action, payload, from });
+  async pushEvent(action, payload, from) {
+    const event = { seq: ++this.room.seq, action, payload, from };
+    this.room.events.push(event);
     if (this.room.events.length > MAX_EVENTS) this.room.events.splice(0, this.room.events.length - MAX_EVENTS);
     await this.saveRoom();
+    this.sendToPeer(event);
+    return event;
+  }
+  sendToPeer(event) {
+    const peer = event.from === 0 ? 1 : 0;
+    const peerId = this.room.peers[peer];
+    if (!peerId) return;
+    const ws = this.sockets.get(peerId);
+    if (ws && ws.readyState === 1) {
+      try { ws.send(JSON.stringify(event)); } catch (error) { this.removeSocket(ws); }
+    }
+  }
+  findClientBySocket(ws) {
+    for (const [clientId, socket] of this.sockets) if (socket === ws) return clientId;
+    return null;
+  }
+  removeSocket(ws) {
+    for (const [clientId, socket] of this.sockets) if (socket === ws) { this.sockets.delete(clientId); break; }
+  }
+  closeSockets() {
+    for (const ws of this.sockets.values()) { try { ws.close(1000, 'room closed'); } catch (error) {} }
+    this.sockets.clear();
   }
   async fetch(request) {
     const url = new URL(request.url);
@@ -53,6 +77,25 @@ export class RelayRoom {
     if (!/^[0-9]{6}$/.test(code)) return badRequest('房间码格式不正确');
     const method = request.method;
     if (method === 'OPTIONS') return new Response('', { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,x-relay-token,x-client-id' } });
+
+    if (action === 'ws') {
+      if (method !== 'GET') return badRequest('方法不支持');
+      const token = url.searchParams.get('token') || '';
+      const clientId = url.searchParams.get('clientId') || '';
+      const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
+      if (!(await this.ensureRoom())) return notFound('房间不存在或已过期');
+      if (!(await verifyToken(this.env.SIGNALING_SECRET || 'dev-secret', code, clientId, token))) return json({ error: '令牌无效' }, 401);
+      const slot = this.room.peers[0] === clientId ? 0 : this.room.peers[1] === clientId ? 1 : -1;
+      if (slot < 0) return badRequest('尚未加入房间');
+      if (this.room.leaving) return notFound('房间已关闭');
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.sockets.set(clientId, server);
+      this.state.acceptWebSocket(server);
+      const pending = this.room.events.filter(event => event.seq > since);
+      for (const event of pending) { try { server.send(JSON.stringify(event)); } catch (error) {} }
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
     if (action === 'create') {
       if (method !== 'POST') return badRequest('方法不支持');
@@ -79,7 +122,7 @@ export class RelayRoom {
       if (occupied && occupied !== body.clientId) return conflict('房间已满');
       this.room.peers[slot] = body.clientId;
       await this.saveRoom();
-      if (slot === 1) await this.event('peer-joined', { peer: 1 }, 1);
+      if (slot === 1) await this.pushEvent('peer-joined', { peer: 1 }, 1);
       return json({ ok: true, peer: slot, ttlMs: ROOM_TTL_MS });
     }
     if (action === 'send') {
@@ -99,7 +142,7 @@ export class RelayRoom {
       if (slot < 0) return badRequest('尚未加入房间');
       const peer = slot === 0 ? 1 : 0;
       if (!this.room.peers[peer]) return json({ ok: true, relayed: false });
-      await this.event(msgAction, payload, slot);
+      await this.pushEvent(msgAction, payload, slot);
       return json({ ok: true, relayed: true, seq: this.room.seq });
     }
     if (action === 'poll') {
@@ -112,7 +155,7 @@ export class RelayRoom {
       const start = Date.now();
       while (Date.now() - start < POLL_MAX_MS) {
         const lastSeq = this.room.events[this.room.events.length - 1]?.seq || 0;
-        const newEvents = this.room.events.filter(e => e.seq > since);
+        const newEvents = this.room.events.filter(event => event.seq > since);
         if (newEvents.length) return json({ events: newEvents, last: lastSeq, ttlMs: Math.max(0, this.room.expiresAt - Date.now()) });
         if (this.room.leaving || this.room.expiresAt <= Date.now() + 200) {
           if (this.room.leaving) await this.state.storage.deleteAll();
@@ -130,9 +173,33 @@ export class RelayRoom {
       const clientId = request.headers.get('x-client-id') || '';
       if (!(await verifyToken(this.env.SIGNALING_SECRET || 'dev-secret', code, clientId, token))) return json({ error: '令牌无效' }, 401);
       this.room.leaving = true;
+      this.closeSockets();
       await this.state.storage.deleteAll();
       return json({ ok: true });
     }
     return badRequest('不支持的操作');
+  }
+  async webSocketMessage(ws, message) {
+    const clientId = this.findClientBySocket(ws);
+    if (!clientId) return;
+    let msg;
+    try { msg = JSON.parse(message); } catch { return; }
+    const action = msg && msg.action;
+    const payload = msg && msg.payload;
+    const msgId = msg && msg.msgId;
+    if (typeof msgId !== 'string' || !msgId || msgId.length > 64) return;
+    if (!ALLOWED_PEER_ACTIONS.has(action)) return;
+    if (typeof payload !== 'string' || !payload || payload.length > MAX_MESSAGE_BYTES) return;
+    const slot = this.room.peers[0] === clientId ? 0 : this.room.peers[1] === clientId ? 1 : -1;
+    if (slot < 0) return;
+    const peer = slot === 0 ? 1 : 0;
+    if (!this.room.peers[peer]) return;
+    await this.pushEvent(action, payload, slot);
+  }
+  async webSocketClose(ws) {
+    this.removeSocket(ws);
+  }
+  async webSocketError(ws) {
+    this.removeSocket(ws);
   }
 }

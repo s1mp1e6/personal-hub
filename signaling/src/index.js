@@ -62,6 +62,9 @@ export default {
     const stub = env.RELAY_ROOMS.get(id);
 
     if (request.method === 'OPTIONS') return new Response('', { status: 204, headers: corsHeaders() });
+    if (parts[3] === 'ws' && request.method === 'GET') {
+      return stub.fetch(request);
+    }
     if (parts[3] === 'join' && request.method === 'POST') {
       let body;
       try { body = await request.json(); } catch { return jsonError('请求体不是 JSON', 400); }

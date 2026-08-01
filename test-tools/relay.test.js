@@ -5,6 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { createMockRelay } = require('./mock-relay');
+const { WebSocket } = require('ws');
 
 function request(server, path, options = {}) {
   return new Promise((resolve, reject) => {
@@ -70,5 +71,52 @@ test('relay create/join/send/poll contract', async () => {
     assert.equal(afterDelete.status, 404);
   } finally {
     server.close();
+  }
+});
+
+function createWsReader(ws) {
+  const queue = [];
+  const waiters = [];
+  ws.on('message', raw => {
+    const parsed = JSON.parse(String(raw));
+    if (waiters.length) waiters.shift()(parsed); else queue.push(parsed);
+  });
+  return () => queue.length ? Promise.resolve(queue.shift()) : new Promise(resolve => waiters.push(resolve));
+}
+
+test('relay websocket signaling path', async () => {
+  const handler = createMockRelay('unit-secret');
+  const server = http.createServer(handler);
+  handler.attachWebSocket(server);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let ws = null;
+  try {
+    const created = await request(server, '/api/room', { method: 'POST', body: { clientId: 'creator-a' } });
+    assert.equal(created.status, 200);
+    const code = created.body.code;
+    const joined = await request(server, '/api/room/' + code + '/join', { method: 'POST', body: { clientId: 'joiner-b' } });
+    assert.equal(joined.status, 200);
+
+    const wsUrl = 'ws://127.0.0.1:' + server.address().port + '/api/room/' + code + '/ws?token=' + encodeURIComponent(created.body.token) + '&clientId=creator-a&since=0';
+    ws = new WebSocket(wsUrl);
+    const next = createWsReader(ws);
+    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+    const first = await next();
+    assert.equal(first.action, 'peer-joined');
+
+    const sendOffer = await request(server, '/api/room/' + code + '/send', {
+      method: 'POST',
+      headers: { 'x-client-id': 'joiner-b', 'x-relay-token': joined.body.token },
+      body: { message: { action: 'offer', payload: '{"type":"offer"}', msgId: 'm1' } }
+    });
+    assert.equal(sendOffer.status, 200);
+    const offer = await next();
+    assert.equal(offer.action, 'offer');
+    assert.equal(offer.payload, '{"type":"offer"}');
+    ws.close();
+  } finally {
+    if (ws) { try { ws.terminate(); } catch (error) {} }
+    server.close();
+    server.closeAllConnections();
   }
 });

@@ -333,25 +333,36 @@
   .theme-swatch{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-strong);background:var(--swatch);flex:0 0 auto}
   /* 设置面板 */
   .modal.settings-modal{max-width:680px}
-  .settings-body{padding:6px 0 2px}
-  .settings-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px;margin-bottom:12px}
-  .settings-head{display:flex;align-items:flex-start;gap:10px}
-  .settings-ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
-  .settings-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
-  .settings-desc{font-size:12px;color:var(--ink-soft);line-height:1.65;margin-top:4px}
-  .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .settings-body{padding:4px 0 2px}
+  .settings-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
+  .settings-section:last-child{margin-bottom:0}
+  .settings-head{display:flex;align-items:flex-start;gap:11px}
+  .settings-ico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
+  .settings-ico svg{width:17px;height:17px}
+  .settings-title{font-size:13px;font-weight:650;color:var(--ink);line-height:1.4}
+  .settings-desc{font-size:12px;color:var(--ink-soft);line-height:1.6;margin-top:4px}
+  .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
   .settings-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .settings-metric{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
-  .settings-metric b{display:block;font-size:15px;color:var(--ink);font-weight:600;letter-spacing:0}
-  .settings-metric span{font-size:11px;color:var(--ink-faint);margin-top:2px;display:block}
-  .settings-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:999px;background:var(--green-soft);color:var(--green)}
+  .settings-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .settings-actions .btn svg{width:14px;height:14px;flex:0 0 auto}
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .settings-metric{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:11px 12px;min-height:70px}
+  .settings-metric b{display:block;font-size:16px;color:var(--ink);font-weight:650;letter-spacing:0}
+  .settings-metric span{font-size:11px;color:var(--ink-faint);margin-top:3px;display:block;line-height:1.45}
+  .settings-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--green-soft);color:var(--green)}
   .settings-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
-  .settings-hint{font-size:11px;color:var(--ink-faint);margin-top:6px;line-height:1.5}
+  .settings-hint{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.55}
+  .settings-hint.warn{color:var(--orange)}
+  .settings-version{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--ink-faint)}
+  .settings-version b{font-weight:600;color:var(--ink-soft)}
   .settings-modal .theme-pick{grid-template-columns:repeat(4,1fr);margin-top:12px}
-  .settings-modal .theme-pick button{flex-direction:column;align-items:flex-start;gap:7px;padding:10px 11px;min-height:64px}
-  .settings-modal .theme-swatch{width:34px;height:24px;border-radius:7px}
-  @media(max-width:560px){.settings-grid{grid-template-columns:1fr}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}}
+  .settings-modal .theme-pick button{position:relative;flex-direction:column;align-items:flex-start;gap:8px;padding:11px;min-height:76px}
+  .settings-modal .theme-swatch{width:38px;height:26px;border-radius:7px}
+  .settings-modal .theme-pick button.active .theme-swatch{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--accent)}
+  .settings-modal .theme-check{position:absolute;top:8px;right:8px;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center}
+  .settings-modal .theme-check svg{width:10px;height:10px}
+  .settings-modal .theme-pick button.active .theme-check{display:flex}
+  @media(max-width:560px){.settings-grid{grid-template-columns:1fr}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}.settings-actions .btn{flex:1 1 auto}}
   .setting-box{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);color:var(--ink-soft)}
   .input-mode{display:flex;gap:8px;margin-bottom:16px;background:var(--bg);padding:4px;border-radius:10px}
   .input-mode button{flex:1;padding:9px;border-radius:7px;font-size:13px;color:var(--ink-soft);transition:all .12s}
@@ -888,11 +899,25 @@ function checkSvg(){return `<svg viewBox="0 0 16 16"><path fill="currentColor" d
 function normalizeTheme(theme){return theme==='warm'?'default':theme||'default'}
 function applyTheme(){const theme=normalizeTheme(state.settings&&state.settings.theme);if(theme==='default')document.documentElement.removeAttribute('data-theme');else document.documentElement.dataset.theme=theme}
 function setTheme(theme){state.settings=state.settings||{};state.settings.theme=normalizeTheme(theme);state.settings.themeExplicit=true;applyTheme();save();renderThemePick();toast('主题已切换')}
+function settingsSvg(name){
+  const icons={
+    database:'<path d="M12 3c4.4 0 8 1.34 8 3s-3.6 3-8 3-8-1.34-8-3 3.6-3 8-3z"/><path d="M4 6v6c0 1.66 3.6 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.6 3 8 3s8-1.34 8-3v-6"/>',
+    palette:'<path d="M12 3a9 9 0 0 0 0 18h1.5a2.25 2.25 0 0 0 1.6-3.77 2.25 2.25 0 0 1 1.6-3.83H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3z"/><circle cx="7.5" cy="10.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/>',
+    folder:'<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/>',
+    phone:'<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
+    info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r="1"/>',
+    download:'<path d="M12 4v10"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+    trash:'<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+    check:'<path d="M5 12l5 5 9-10"/>',
+    sync:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>'
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.info}</svg>`;
+}
 function renderThemePick(){
   const el=document.getElementById('themePick');if(!el)return;
   const current=normalizeTheme(state.settings&&state.settings.theme);
   const themes=[['default','默认','linear-gradient(135deg,#f5f3ef 52%,#2383e2 52%)'],['light','清爽','linear-gradient(135deg,#f7f8fb 52%,#2563eb 52%)'],['dark','深色','linear-gradient(135deg,#242424 52%,#6aa8ff 52%)'],['forest','森绿','linear-gradient(135deg,#f2f6f1 52%,#2f7d55 52%)']];
-  el.innerHTML=themes.map(([id,name,swatch])=>`<button class="${current===id?'active':''}" onclick="setTheme('${id}')" aria-label="切换到${name}主题" aria-pressed="${current===id}"><span class="theme-swatch" style="--swatch:${swatch}"></span><span>${name}</span></button>`).join('');
+  el.innerHTML=themes.map(([id,name,swatch])=>`<button class="${current===id?'active':''}" onclick="setTheme('${id}')" aria-label="切换到${name}主题" aria-pressed="${current===id}"><span class="theme-swatch" style="--swatch:${swatch}"></span><span class="theme-name">${name}</span>${current===id?`<span class="theme-check">${checkSvg()}</span>`:''}</button>`).join('');
 }
 
 /* 导航 */
@@ -1719,35 +1744,41 @@ function openStorageInfo(){
   const size=new Blob([JSON.stringify(state)]).size;
   const fsSupported=!!window.showDirectoryPicker;
   const backupStatus=backupDirHandle?'已选择本机备份文件夹':'默认使用浏览器下载目录';
+  const relayName=shortRelayName();
   document.getElementById('modalTitle').textContent='设置';
   document.querySelector('.modal').classList.add('settings-modal');
   document.getElementById('modalBody').className='mbody settings-body';
   document.getElementById('modalBody').innerHTML=`
     <div class="settings-section">
-      <div class="settings-head"><div class="settings-ico">💾</div><div><div class="settings-title">本机数据</div><div class="settings-desc">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现。</div></div></div>
+      <div class="settings-head"><div class="settings-ico">${settingsSvg('database')}</div><div><div class="settings-title">本机数据</div><div class="settings-desc">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现。</div></div></div>
       <div class="settings-grid" style="margin-top:12px">
         <div class="settings-metric"><b>${(size/1024).toFixed(1)} KB</b><span>当前本机数据（含附件）</span></div>
         <div class="settings-metric"><span class="settings-status">本机优先</span><span style="margin-top:6px">离线可读可用</span></div>
       </div>
     </div>
     <div class="settings-section">
-      <div class="settings-head"><div class="settings-ico">🎨</div><div><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择会保存在本机。</div></div></div>
+      <div class="settings-head"><div class="settings-ico">${settingsSvg('palette')}</div><div><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择会保存在本机。</div></div></div>
       <div class="theme-pick" id="themePick"></div>
     </div>
     <div class="settings-grid">
       <div class="settings-section" style="margin-bottom:0">
-        <div class="settings-head"><div class="settings-ico">📁</div><div><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}</div></div></div>
+        <div class="settings-head"><div class="settings-ico">${settingsSvg('folder')}</div><div><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}</div></div></div>
         <div class="settings-hint">网页不能静默写入任意默认路径；支持的浏览器可以手动授权一个文件夹，导出时优先写入那里。</div>
         <div class="settings-actions">
-          <button class="btn ghost" onclick="chooseBackupDir()" ${fsSupported?'':'disabled'} aria-label="选择本机备份文件夹">选择备份文件夹</button>
-          <button class="btn ghost" onclick="clearBackupDir()" ${backupDirHandle?'':'disabled'} aria-label="清除备份文件夹授权">清除授权</button>
+          <button class="btn ghost" onclick="chooseBackupDir()" ${fsSupported?'':'disabled'} aria-label="选择本机备份文件夹">${settingsSvg('folder')}选择备份文件夹</button>
+          <button class="btn ghost" onclick="clearBackupDir()" ${backupDirHandle?'':'disabled'} aria-label="清除备份文件夹授权">${settingsSvg('trash')}清除授权</button>
         </div>
-        ${fsSupported?'':'<div class="settings-hint" style="color:var(--orange)">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
+        ${fsSupported?'':'<div class="settings-hint warn">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
       </div>
       <div class="settings-section" style="margin-bottom:0">
-        <div class="settings-head"><div class="settings-ico">📱</div><div><div class="settings-title">设备同步</div><div class="settings-desc">两台设备在本机页面内完成配对，数据通过 WebRTC 点对点传输，不经过云服务器。</div></div></div>
-        <div class="settings-actions"><button class="btn primary" style="width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">打开设备同步</button></div>
+        <div class="settings-head"><div class="settings-ico">${settingsSvg('sync')}</div><div><div class="settings-title">设备同步</div><div class="settings-desc">两台设备在本机页面内完成配对，数据通过 WebRTC 点对点传输，不经过云服务器。</div></div></div>
+        <div class="settings-actions"><button class="btn primary" style="width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">${settingsSvg('phone')}打开设备同步</button></div>
       </div>
+    </div>
+    <div class="settings-section" style="margin-bottom:0">
+      <div class="settings-head"><div class="settings-ico">${settingsSvg('info')}</div><div><div class="settings-title">关于与中继</div><div class="settings-desc">短码联动通过 Cloudflare Workers 免费中继交换配对信息，数据本身仍走设备间直连。</div></div></div>
+      <div class="settings-version" style="margin-top:12px"><span>当前版本</span><b>Personal Hub · 本机优先</b></div>
+      <div class="settings-version"><span>短码中继</span><b>${relayName}</b></div>
     </div>`;
   renderThemePick();
   document.getElementById('modeHint').textContent='导入备份会覆盖当前本机数据';
@@ -1817,7 +1848,7 @@ function copySyncLocalCode(){const code=document.getElementById('syncLocal')?.va
 function renderSyncQr(text){const el=document.getElementById('syncQr');if(!el)return;el.innerHTML='';if(!text){el.textContent='点击下方按钮生成二维码';return}if(typeof qrcode==='undefined'){el.textContent='二维码库未加载，可复制配对码继续';return}try{const qr=qrcode(0,'M');qr.addData(text);qr.make();el.innerHTML=qr.createSvgTag({cellSize:4,margin:2});el.querySelector('svg').setAttribute('aria-label','本机配对二维码')}catch(e){el.textContent='配对码较长，二维码生成失败，请复制文本配对'}}
 function resetSyncAuthorization(){syncOfferedScope=null;syncFrozenManifest=null;syncOfferedIdentityIds=new Set()}
 function setupSyncPc(){const session=++syncSessionId;clearSyncConnectTimeout();clearSyncConnectHelp();syncPc&&syncPc.close();syncDc=null;syncIncoming=null;resetSyncAuthorization();syncPc=new RTCPeerConnection({iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']}]});syncPc.oniceconnectionstatechange=()=>{if(session!==syncSessionId)return;const state=syncPc.iceConnectionState;if(state==='failed')handleSyncConnectFailure('连接失败：请确认两台设备在同一网络，并关闭系统代理或 VPN 后重试');else if(state==='disconnected')syncStatus('连接中断，正在尝试恢复...');else if(state==='connected'||state==='completed'){clearSyncConnectTimeout();clearSyncConnectHelp();syncStatus('已连接')}else syncStatus('连接状态：'+state)};syncPc.ondatachannel=e=>setupSyncChannel(e.channel,session);return syncPc}
-function setupSyncChannel(ch,session=syncSessionId){if(session!==syncSessionId)return;syncDc=ch;syncDc.binaryType='arraybuffer';syncDc.onopen=()=>{if(session!==syncSessionId||syncDc!==ch)return;clearSyncConnectTimeout();clearSyncConnectHelp();syncOfferedScope=cloneState(syncScope());syncStatus('已连接，可以发送备份');setTimeout(()=>{if(session===syncSessionId&&syncDc===ch&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'scope-offer',scope:syncOfferedScope},{channel:ch,session})},500)};syncDc.onmessage=e=>{if(session===syncSessionId&&syncDc===ch)receiveSyncMessage(e.data)};syncDc.onclose=()=>{if(session===syncSessionId&&syncDc===ch)resetSyncAuthorization()};syncDc.onerror=()=>{if(session===syncSessionId&&syncDc===ch)syncStatus('连接出错')}}
+function setupSyncChannel(ch,session=syncSessionId){if(session!==syncSessionId)return;syncDc=ch;syncDc.binaryType='arraybuffer';syncDc.onopen=()=>{if(session!==syncSessionId||syncDc!==ch)return;clearSyncConnectTimeout();clearSyncConnectHelp();syncOfferedScope=cloneState(syncScope());syncStatus('已连接，可以发送备份');if(syncShort&&syncShort.ws){try{syncShort.ws.close()}catch(e){}syncShort.ws=null}setTimeout(()=>{if(session===syncSessionId&&syncDc===ch&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'scope-offer',scope:syncOfferedScope},{channel:ch,session})},500)};syncDc.onmessage=e=>{if(session===syncSessionId&&syncDc===ch)receiveSyncMessage(e.data)};syncDc.onclose=()=>{if(session===syncSessionId&&syncDc===ch)resetSyncAuthorization()};syncDc.onerror=()=>{if(session===syncSessionId&&syncDc===ch)syncStatus('连接出错')}}
 async function waitIce(pc,ms=4000){if(pc.iceGatheringState==='complete')return;const started=Date.now();await new Promise(resolve=>{const timer=setInterval(tick,1000);function tick(){if(pc.iceGatheringState==='complete'||Date.now()-started>=ms){clearInterval(timer);pc.removeEventListener('icegatheringstatechange',tick);resolve()}else syncStatus('正在收集网络候选...'+Math.floor((Date.now()-started)/1000)+'s')}pc.addEventListener('icegatheringstatechange',tick);tick()})}
 function clearSyncConnectTimeout(){if(syncConnectTimer){clearTimeout(syncConnectTimer);syncConnectTimer=null}}
 function armSyncConnectTimeout(message,seconds=25){clearSyncConnectTimeout();syncConnectTimer=setTimeout(()=>{syncConnectTimer=null;if(!syncDc||syncDc.readyState!=='open')handleSyncConnectFailure(message||'连接超时，未建立数据通道')},seconds*1000)}
@@ -1853,7 +1884,7 @@ async function syncShortCreate(){
     syncStatus('等待另一台设备加入'+created.code+'...');
     armShortRelayTimeout('等待对方加入超时：45 秒内没有设备加入，请重新创建。',45);
     await startShortRelayPc();
-    startShortRelayPolling();
+    startShortRelayWs();
   }catch(error){
     syncShort=null;syncStatus('创建短码失败：'+error.message);toast('创建短码失败：'+error.message);
   }
@@ -1876,7 +1907,7 @@ async function syncShortJoin(){
     syncStatus('正在加入短码房间...');
     armShortRelayTimeout('短码连接超时：45 秒内未建立连接，请确认两台设备可直连并重试。',45);
     await startShortRelayPc();
-    startShortRelayPolling();
+    startShortRelayWs();
   }catch(error){
     syncShort=null;syncStatus('加入失败：'+error.message);toast('加入失败：'+error.message);
   }
@@ -1889,10 +1920,9 @@ async function startShortRelayPc(){
   if(syncShort.role==='joiner'){
     setupSyncChannel(pc.createDataChannel('backup'));
     await pc.setLocalDescription(await pc.createOffer());
-    await waitIce(pc,1500);
     if(!syncShort||syncShort.stopped)return;
-    syncShort.offerSent=true;
     await shortRelaySend('offer',JSON.stringify(pc.localDescription),pc);
+    syncShort.offerSent=true;
     const pending=syncShort.pendingIce.splice(0);
     for(const candidate of pending){if(syncShort&&!syncShort.stopped)await shortRelaySend('ice',JSON.stringify(candidate),pc)}
   }
@@ -1900,8 +1930,48 @@ async function startShortRelayPc(){
 async function shortRelaySend(action,payload,pc){
   if(!syncShort||syncShort.stopped)return false;
   const msg={action,payload,msgId:shortCodeId()};
+  const ws=syncShort.ws;
+  if(ws&&ws.readyState===1){try{ws.send(JSON.stringify(msg));return true}catch(error){}}
   const result=await shortRelayRequest('/api/room/'+syncShort.code+'/send',{method:'POST',headers:{'x-relay-token':syncShort.token,'x-client-id':syncShort.clientId},body:JSON.stringify({message:msg})});
   return !!(result&&result.relayed);
+}
+async function handleShortRelayEvents(events){
+  if(!syncShort||syncShort.stopped)return;
+  for(const event of(events||[])){
+    if(!syncShort||syncShort.stopped)return;
+    if(syncShort.seen.has(event.seq))continue;
+    syncShort.seen.add(event.seq);
+    if(event.action==='offer'&&syncShort.role==='creator')await handleShortOffer(event.payload);
+    else if(event.action==='answer'&&syncShort.role==='joiner')await handleShortAnswer(event.payload);
+    else if(event.action==='ice')await handleShortIce(event.payload);
+  }
+}
+function startShortRelayWs(){
+  if(!syncShort||syncShort.stopped||typeof WebSocket==='undefined'){startShortRelayPolling();return}
+  const base=shortRelayUrl();if(!base){startShortRelayPolling();return}
+  const u=new URL(base);u.protocol=u.protocol==='https:'?'wss:':'ws:';
+  const wsUrl=u.toString().replace(/\/+$/,'')+'/api/room/'+syncShort.code+'/ws?token='+encodeURIComponent(syncShort.token)+'&clientId='+encodeURIComponent(syncShort.clientId)+'&since='+(syncShort.since||0);
+  let ws;
+  try{ws=new WebSocket(wsUrl)}catch(e){startShortRelayPolling();return}
+  syncShort.ws=ws;
+  const fallback=()=>{
+    if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;
+    syncShort.ws=null;
+    try{ws.close()}catch(e){}
+    if(syncDc&&syncDc.readyState==='open')return;
+    startShortRelayPolling();
+  };
+  ws.onopen=()=>{if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;if(syncShort.role==='joiner')syncStatus('信令通道已建立，等待直连...')};
+  ws.onmessage=async event=>{
+    if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;
+    try{
+      const data=JSON.parse(event.data);
+      if(data&&data.seq!=null&&syncShort.since<data.seq)syncShort.since=data.seq;
+      await handleShortRelayEvents(data&&data.action?[data]:(data&&data.events||[]));
+    }catch(error){console.warn('短码信令消息解析失败:',error)}
+  };
+  ws.onerror=()=>fallback();
+  ws.onclose=()=>fallback();
 }
 async function startShortRelayPolling(){
   if(!syncShort||syncShort.stopped)return;
@@ -1911,14 +1981,7 @@ async function startShortRelayPolling(){
       const data=await shortRelayRequest('/api/room/'+syncShort.code+'/poll?token='+encodeURIComponent(syncShort.token)+'&clientId='+encodeURIComponent(syncShort.clientId)+'&since='+syncShort.since);
       if(!syncShort||syncShort.stopped)return;
       if(data.last!=null)syncShort.since=data.last;
-      for(const event of(data.events||[])){
-        if(!syncShort||syncShort.stopped)return;
-        if(syncShort.seen.has(event.seq))continue;
-        syncShort.seen.add(event.seq);
-        if(event.action==='offer'&&syncShort.role==='creator')await handleShortOffer(event.payload);
-        else if(event.action==='answer'&&syncShort.role==='joiner')await handleShortAnswer(event.payload);
-        else if(event.action==='ice')await handleShortIce(event.payload);
-      }
+      await handleShortRelayEvents(data.events||[]);
       if(!syncShort||syncShort.stopped)return;
       if(syncDc&&syncDc.readyState==='open'){syncShort.poller=null;return}
       syncShort.poller=setTimeout(poll,1400);
@@ -1938,9 +2001,11 @@ async function handleShortOffer(payload){
     syncStatus('已收到对方连接请求，正在回传...');
     await syncPc.setRemoteDescription(JSON.parse(payload));
     await syncPc.setLocalDescription(await syncPc.createAnswer());
-    await waitIce(syncPc,1500);
     if(!syncShort||syncShort.stopped||syncShort.role!=='creator')return;
     await shortRelaySend('answer',JSON.stringify(syncPc.localDescription),syncPc);
+    syncShort.offerSent=true;
+    const pending=syncShort.pendingIce.splice(0);
+    for(const candidate of pending){if(syncShort&&!syncShort.stopped)await shortRelaySend('ice',JSON.stringify(candidate),syncPc)}
     syncStatus('已回传，等待直连建立...');
   }catch(error){
     clearSyncConnectTimeout();syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
@@ -1977,6 +2042,7 @@ function stopShortRelay(){
   if(syncShort){
     syncShort.stopped=true;
     if(syncShort.poller){clearTimeout(syncShort.poller);syncShort.poller=null}
+    if(syncShort.ws){try{syncShort.ws.close()}catch(e){}syncShort.ws=null}
     if(syncShort.role==='creator'&&syncShort.token&&syncShort.code){
       try{shortRelayRequest('/api/room/'+syncShort.code+'/delete',{method:'POST',headers:{'x-relay-token':syncShort.token,'x-client-id':syncShort.clientId}}).catch(()=>{})}catch(e){}
     }

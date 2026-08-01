@@ -40,6 +40,7 @@ async function main() {
   const server = http.createServer(serveFile);
   const relay = createMockRelay('test-secret');
   const relayServer = http.createServer(relay);
+  relay.attachWebSocket(relayServer);
   await Promise.all([
     new Promise(resolve => server.listen(0, '127.0.0.1', resolve)),
     new Promise(resolve => relayServer.listen(0, '127.0.0.1', resolve))
@@ -118,7 +119,9 @@ async function main() {
   } finally {
     await browser.close();
     server.close();
+    server.closeAllConnections();
     relayServer.close();
+    relayServer.closeAllConnections();
   }
 }
 

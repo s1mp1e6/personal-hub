@@ -135,7 +135,7 @@ async function main() {
     await page.evaluate(() => openStorageInfo());
     await page.locator('#themePick').waitFor();
     const themeState = await page.evaluate(() => ({
-      names: [...document.querySelectorAll('#themePick button span:last-child')].map(el => el.textContent.trim()),
+      names: [...document.querySelectorAll('#themePick button .theme-name')].map(el => el.textContent.trim()),
       count: document.querySelectorAll('#themePick button').length,
       swatches: document.querySelectorAll('#themePick .theme-swatch').length,
       bodyText: document.getElementById('modalBody').textContent
