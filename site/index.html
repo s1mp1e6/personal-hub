@@ -405,6 +405,10 @@
 
   .fab{position:fixed;bottom:calc(30px + env(safe-area-inset-bottom));right:calc(30px + env(safe-area-inset-right));width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#1a6fc0);color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(35,131,226,.4);z-index:35;transition:all .15s}
   .fab:hover{transform:scale(1.1) rotate(90deg)}
+  .update-banner{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:210;display:none;align-items:center;gap:10px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.24);max-width:calc(100vw - 32px)}
+  .update-banner.show{display:flex}
+  .update-banner button{background:#fff;color:var(--ink);border:0;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;flex:0 0 auto}
+  @media(max-width:620px){.update-banner{width:calc(100vw - 24px);justify-content:space-between}}
   .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--ink);color:#fff;padding:10px 22px;border-radius:10px;font-size:13px;z-index:200;transition:transform .25s;box-shadow:0 4px 16px rgba(0,0,0,.2)}
   .toast.show{transform:translateX(-50%) translateY(0)}
   .menu-toggle{display:none;position:fixed;top:14px;left:14px;z-index:50;width:36px;height:36px;border-radius:8px;background:#fff;border:1px solid var(--line);align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
@@ -564,8 +568,17 @@ const RecoveryCore=window.PersonalHubRecoveryCore;
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').catch(err=>console.warn('SW注册失败:',err));
+
   });
 }
+const APP_VERSION='2026-08-01.1';
+const META_CACHE='personal-hub-meta-v1';
+let updateShown=false;
+function showUpdateBanner(){const el=document.getElementById('updateBanner');if(el&&!updateShown){updateShown=true;el.classList.add('show')}}
+async function checkAppUpdate(){try{const cache=await caches.open(META_CACHE);const hit=await cache.match('app-version');const cached=hit?await hit.text():'';if(cached&&cached!==APP_VERSION)showUpdateBanner();}catch(e){}if(!updateShown)setTimeout(checkAppUpdate,2500)}
+async function applyAppUpdate(){location.reload();}
+if('caches' in window&&'serviceWorker' in navigator)checkAppUpdate();
+
 const KEY='personal_hub_v6';
 const BACKUP_DIR_KEY='personal_hub_backup_dir';
 const DB_NAME='personal_hub_local_first';
@@ -2138,5 +2151,6 @@ function updateStorageInfo(){try{const size=new Blob([JSON.stringify(state)]).si
 function init(){renderNav();renderContent();hydrationPromise=hydrateState();updateClock();setInterval(updateClock,1000);updateStorageInfo();}
 init();
 </script>
+  <div class="update-banner" id="updateBanner" role="status"><span>发现新版本，刷新后可使用最新功能。</span><button onclick="applyAppUpdate()" aria-label="刷新加载最新版本">立即刷新</button></div>
 </body>
 </html>
