@@ -99,6 +99,15 @@
 
 如果你希望由我来自动加 DNS：登录 Cloudflare → 右上角头像 → My Profile → API Tokens → Create Token → 选 Edit zone DNS 模板，Zone 限定为 zal.best，把生成的 Token 发我即可；拿到 EdgeOne 的 CNAME 目标后我可以直接加记录并复测。Token 只有 zal.best 的 DNS 编辑权限，不影响你其他项目。
 
+更省事的本机一键版：创建同样权限的 Token 后不用发给任何人，直接在本地 PowerShell 跑：
+
+``powershell
+$env:CLOUDFLARE_API_TOKEN = "你的Token"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/cloudflare-add-dns.ps1 -CnameTarget "EdgeOne给的CNAME目标" -TxtName "hub" -TxtValue "EdgeOne给的验证串"
+``
+
+脚本会自动创建/核对 TXT 和 hub 的 CNAME，并复测 DNS 是否生效；Token 只在本机使用。
+
 ## 五、第三步：把 `hub.zal.best` 绑定到 EdgeOne
 
 1. 回到 EdgeOne Makers，进入项目详情，切到“域名管理”页。
