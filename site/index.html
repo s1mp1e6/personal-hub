@@ -333,32 +333,37 @@
   .theme-swatch{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-strong);background:var(--swatch);flex:0 0 auto}
   /* 设置面板 */
   .modal.settings-modal{max-width:680px}
-  .settings-body{padding:4px 0 2px}
+  .settings-body{padding:6px 0 2px}
   .settings-ico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
   .settings-ico svg{width:17px;height:17px}
-  .settings-overview{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px}
-  .settings-overview-main b{display:block;font-size:17px;color:var(--ink);font-weight:650;letter-spacing:0;line-height:1.2}
-  .settings-overview-main span{display:block;font-size:11px;color:var(--ink-faint);margin-top:3px;line-height:1.45}
-  .settings-overview-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
+  .settings-summary{display:flex;align-items:center;gap:12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:10px}
+  .settings-summary-ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
+  .settings-summary-ico svg{width:19px;height:19px}
+  .settings-summary-main{flex:1;min-width:0}
+  .settings-summary-main b{display:block;font-size:16px;color:var(--ink);font-weight:650;letter-spacing:0;line-height:1.25}
+  .settings-summary-main span{display:block;font-size:11px;color:var(--ink-faint);margin-top:3px;line-height:1.45}
+  .settings-summary-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
   .settings-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
   .settings-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
-  .settings-overview-side small{font-size:10px;color:var(--ink-faint)}
+  .settings-summary-side small{font-size:10px;color:var(--ink-faint)}
   .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin:0 2px 12px}
-  .settings-group{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .settings-group{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:12px}
   .settings-group:last-child{margin-bottom:0}
-  .settings-row{display:flex;align-items:center;gap:12px;padding:13px 14px;min-height:56px}
+  .settings-group-label{font-size:11px;font-weight:650;color:var(--ink-faint);padding:12px 16px 0}
+  .settings-row{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:60px}
   .settings-row+.settings-row{border-top:1px solid var(--line)}
+  @media(hover:hover){.settings-row:hover{background:var(--bg)}}
   .settings-main{flex:1;min-width:0}
   .settings-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
   .settings-desc{font-size:11px;color:var(--ink-faint);line-height:1.5;margin-top:3px}
   .settings-actions{display:flex;gap:8px;flex:0 0 auto;align-items:center}
   .settings-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
   .settings-actions .btn svg{width:14px;height:14px;flex:0 0 auto}
-  .settings-theme-wrap{padding:2px 14px 14px}
+  .settings-theme-wrap{padding:2px 16px 14px}
   .settings-meta{justify-content:space-between;font-size:12px;color:var(--ink-soft)}
   .settings-meta b{font-weight:600;color:var(--ink-soft);text-align:right}
-  .settings-relay-tag{font-size:10px;font-weight:600;color:var(--green);background:var(--green-soft);border-radius:999px;padding:2px 8px;flex:0 0 auto}
-  .settings-hint{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.55}
+  .settings-tag{font-size:10px;font-weight:600;color:var(--ink-soft);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+  .settings-hint{font-size:11px;color:var(--ink-faint);margin:4px 16px 14px;line-height:1.55}
   .settings-hint.warn{color:var(--orange)}
   .settings-modal .theme-pick{grid-template-columns:repeat(4,1fr);margin-top:10px}
   .settings-modal .theme-pick button{position:relative;flex-direction:column;align-items:flex-start;gap:8px;padding:11px;min-height:72px}
@@ -367,7 +372,7 @@
   .settings-modal .theme-check{position:absolute;top:8px;right:8px;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center}
   .settings-modal .theme-check svg{width:10px;height:10px}
   .settings-modal .theme-pick button.active .theme-check{display:flex}
-  @media(max-width:560px){.settings-overview{flex-direction:column;align-items:flex-start}.settings-overview-side{flex-direction:row;align-items:center}.settings-row{flex-wrap:wrap}.settings-actions{width:100%}.settings-actions .btn{flex:1 1 auto}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.settings-summary{flex-direction:row;align-items:center}.settings-summary-side{flex-direction:column;align-items:flex-end}.settings-row{flex-wrap:wrap}.settings-actions{width:100%}.settings-actions .btn{flex:1 1 auto}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}}
   .setting-box{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);color:var(--ink-soft)}
   .input-mode{display:flex;gap:8px;margin-bottom:16px;background:var(--bg);padding:4px;border-radius:10px}
   .input-mode button{flex:1;padding:9px;border-radius:7px;font-size:13px;color:var(--ink-soft);transition:all .12s}
@@ -587,7 +592,7 @@ if('serviceWorker' in navigator){
 
   });
 }
-const APP_VERSION='2026-08-02.2';
+const APP_VERSION='2026-08-02.3';
 const APP_BUILD='v'+(APP_VERSION.split('.')[1]||'1');
 const META_CACHE='personal-hub-meta-v1';
 let updateShown=false;
@@ -913,7 +918,11 @@ function settingsSvg(name){
     info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r="1"/>',
     trash:'<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
     check:'<path d="M5 12l5 5 9-10"/>',
-    sync:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>'
+    sync:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
+    box:'<path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/>',
+    download:'<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+    upload:'<path d="M12 20V9"/><path d="M7 14l5-5 5 5"/><path d="M5 4h14"/>',
+    reset:'<path d="M3 12a9 9 0 1 0 2.7-6.5"/><path d="M3 4v5h5"/>'
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.info}</svg>`;
 }
@@ -1746,6 +1755,10 @@ async function undoLastReset(){if(!resetLastRecovery){toast('没有可撤销的�
 function resetToday(){openResetCenter()}
 function openStorageInfo(){
   const size=new Blob([JSON.stringify(state)]).size;
+  const sizeLabel=size>=1048576?(size/1048576).toFixed(2)+' MB':(size/1024).toFixed(1)+' KB';
+  const moduleCount=Object.keys(state.modules||{}).length;
+  const recordCount=countBackupItems(state);
+  const attachmentCount=collectFileRefs(state).size;
   const fsSupported=!!window.showDirectoryPicker;
   const backupStatus=backupDirHandle?'已选择本机备份文件夹':'默认使用浏览器下载目录';
   const relayName=shortRelayName();
@@ -1753,12 +1766,14 @@ function openStorageInfo(){
   document.querySelector('.modal').classList.add('settings-modal');
   document.getElementById('modalBody').className='mbody settings-body';
   document.getElementById('modalBody').innerHTML=`
-    <div class="settings-overview">
-      <div class="settings-overview-main"><b>${(size/1024).toFixed(1)} KB</b><span>当前本机数据（含附件）</span></div>
-      <div class="settings-overview-side"><span class="settings-badge">本机优先</span><small>离线可读可用</small></div>
+    <div class="settings-summary">
+      <div class="settings-summary-ico">${settingsSvg('box')}</div>
+      <div class="settings-summary-main"><b>本机数据 ${sizeLabel}</b><span>${moduleCount} 个模块 · ${recordCount} 条记录 · ${attachmentCount} 个附件</span></div>
+      <div class="settings-summary-side"><span class="settings-badge">本机优先</span><small>离线可读可用</small></div>
     </div>
-    <div class="settings-note">数据保存在当前浏览器的 IndexedDB 中，不会上传到服务器；换设备或清除站点数据后不会自动恢复。</div>
+    <div class="settings-note">数据只保存在当前浏览器的 IndexedDB 中，不会上传到服务器；换设备或清除站点数据后不会自动恢复。</div>
     <div class="settings-group">
+      <div class="settings-group-label">外观</div>
       <div class="settings-row">
         <div class="settings-ico">${settingsSvg('palette')}</div>
         <div class="settings-main"><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择保存在本机。</div></div>
@@ -1766,6 +1781,7 @@ function openStorageInfo(){
       <div class="settings-theme-wrap"><div class="theme-pick" id="themePick"></div></div>
     </div>
     <div class="settings-group">
+      <div class="settings-group-label">数据与备份</div>
       <div class="settings-row">
         <div class="settings-ico">${settingsSvg('folder')}</div>
         <div class="settings-main"><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}${fsSupported?'':' · 当前浏览器使用下载备份'}</div></div>
@@ -1775,23 +1791,39 @@ function openStorageInfo(){
         </div>
       </div>
       <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('download')}</div>
+        <div class="settings-main"><div class="settings-title">导出备份</div><div class="settings-desc">把本机数据和附件保存为备份文件。</div></div>
+        <div class="settings-actions"><button class="btn ghost" id="settingsExportBtn" onclick="exportData()" aria-label="导出本机备份">${settingsSvg('download')}立即导出</button></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('upload')}</div>
+        <div class="settings-main"><div class="settings-title">导入备份</div><div class="settings-desc">从备份文件恢复，导入会覆盖当前本机数据。</div></div>
+        <div class="settings-actions"><button class="btn ghost" onclick="document.getElementById('importFile').click()" aria-label="导入备份文件">${settingsSvg('upload')}选择文件</button></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-ico">${settingsSvg('reset')}</div>
+        <div class="settings-main"><div class="settings-title">数据清理与重置</div><div class="settings-desc">清理完成或归档内容，也可按模块选择性重置。</div></div>
+        <div class="settings-actions"><button class="btn ghost" onclick="openResetCenter()" aria-label="打开数据清理与重置">${settingsSvg('reset')}打开</button></div>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-label">设备同步</div>
+      <div class="settings-row">
         <div class="settings-ico">${settingsSvg('sync')}</div>
-        <div class="settings-main"><div class="settings-title">设备同步</div><div class="settings-desc">二维码或短码配对，WebRTC 点对点直传，不经过云服务器。</div></div>
+        <div class="settings-main"><div class="settings-title">近距离联动</div><div class="settings-desc">二维码或短码配对，WebRTC 点对点直传，数据不经过云服务器。</div></div>
         <div class="settings-actions"><button class="btn primary" onclick="openSyncModal()" aria-label="打开近距离设备同步">${settingsSvg('phone')}打开设备同步</button></div>
       </div>
     </div>
     <div class="settings-group">
-      <div class="settings-row">
-        <div class="settings-ico">${settingsSvg('info')}</div>
-        <div class="settings-main"><div class="settings-title">关于与中继</div><div class="settings-desc">短码联动通过 Cloudflare Workers 免费中继交换配对信息，数据本身仍走设备间直连。</div></div>
-      </div>
+      <div class="settings-group-label">关于</div>
       <div class="settings-row settings-meta"><span>当前版本</span><b>Personal Hub ${APP_BUILD}</b></div>
-      <div class="settings-row settings-meta"><span>短码中继</span><b>${relayName}</b><span class="settings-relay-tag">免费</span></div>
+      <div class="settings-row settings-meta"><span>短码中继</span><b>${relayName}</b><span class="settings-tag">免费中继</span></div>
+      <div class="settings-hint">短码联动通过 Cloudflare Workers 免费中继交换配对信息，数据本身仍走设备间直连。</div>
     </div>`;
   renderThemePick();
-  document.getElementById('modeHint').textContent='导入备份会覆盖当前本机数据';
-  document.getElementById('modalSave').onclick=exportData;
-  document.getElementById('modalSave').textContent='导出备份';
+  document.getElementById('modeHint').textContent='所有更改会即时保存在本机';
+  document.getElementById('modalSave').onclick=closeModal;
+  document.getElementById('modalSave').textContent='完成';
   document.getElementById('mask').classList.add('show');
 }
 async function chooseBackupDir(){

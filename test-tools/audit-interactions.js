@@ -81,7 +81,7 @@ async function testDesktop(baseUrl, browser) {
   const themeAfterWarm = await page.evaluate(() => document.documentElement.dataset.theme);
   if (themeAfterWarm !== undefined) throw new Error(`desktop: default theme should remove data-theme, got ${themeAfterWarm}`);
   const downloadPromise = page.waitForEvent('download');
-  await page.locator('#modalSave').click();
+  await page.locator('#settingsExportBtn').click();
   const download = await downloadPromise;
   if (!download.suggestedFilename().startsWith('personal_hub_backup_')) {
     throw new Error(`desktop: unexpected export filename ${download.suggestedFilename()}`);
