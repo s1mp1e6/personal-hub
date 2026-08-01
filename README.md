@@ -26,6 +26,7 @@ v1-local-first 的目标：
 ## 部署建议
 
 把 `site/` 作为静态站点根目录部署即可。
+- 国内访问、子域名、ICP 备案路线见 `docs/2026-08-02-mainland-access-deployment.md`；照着点击的实操步骤见 `docs/2026-08-02-do-it-now-step-by-step.md`。
 
 如果用 GitHub Pages，可以把 `site/` 目录内容放到仓库根目录，或在 GitHub Pages 设置中选择对应发布分支。
 

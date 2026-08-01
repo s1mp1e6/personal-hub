@@ -6,3 +6,4 @@ verification/
 *.log
 signaling/node_modules/
 signaling/.wrangler/
+dist/
