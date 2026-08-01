@@ -322,6 +322,15 @@
 .sync-relay-note{font-size:11px;color:var(--ink-faint);margin-top:8px;line-height:1.5}
   .sync-connect-help{margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--orange-soft);border:1px solid var(--line-strong);font-size:12px;color:var(--ink-soft)}
   .sync-connect-help .sync-summary{margin:6px 0 8px}
+  .sync-diag{margin-top:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:12px}
+  .sync-diag summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--ink-soft);list-style:none}
+  .sync-diag summary::-webkit-details-marker{display:none}
+  .sync-diag-stage{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--ink);font-size:11px}
+  .sync-diag-elapsed{color:var(--ink-faint);font-size:11px}
+  .sync-diag-body{padding:0 10px 10px}
+  .sync-diag-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .sync-diag-tools .btn{min-height:34px;font-size:12px}
+  .sync-diag-log{max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--card);padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.55;color:var(--ink-soft);white-space:pre-wrap;word-break:break-all}
   .qr-scan-stage{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:#111;margin-top:10px;box-shadow:inset 0 0 0 1px var(--line)}
   .qr-scan-stage video{width:100%;height:100%;object-fit:cover;display:block}
   .qr-scan-canvas{position:absolute;left:-9999px;top:-9999px}
@@ -613,7 +622,7 @@ if('serviceWorker' in navigator){
 
   });
 }
-const APP_VERSION='2026-08-02.4';
+const APP_VERSION='2026-08-02.5';
 const APP_BUILD='v'+(APP_VERSION.split('.')[1]||'1');
 const META_CACHE='personal-hub-meta-v1';
 let updateShown=false;
@@ -644,6 +653,7 @@ let syncPc=null,syncDc=null,syncIncoming=null,qrStream=null,qrScanTimer=null,qrD
 let syncRole=null,syncRemoteManifest=null,syncLocalManifest=null,syncPreviewPlan=null,syncMode='safe',syncLastRecovery=null,syncPeerScope=null;
 let syncOfferedScope=null,syncFrozenManifest=null,syncOfferedIdentityIds=new Set(),syncLastResult=null,syncSessionId=0;
 let syncShort=null;
+let syncDiag=null,syncDiagTimer=null,syncDiagAutoScroll=false;
 const SYNC_PROTOCOL=2,syncProtocolTrace=[];
 const fileUrlCache=new Map(),FILE_URL_CACHE_MAX=80;
 
@@ -1743,7 +1753,7 @@ function saveLogForm(){
   if(editingId){const idx=(parent.logs||[]).findIndex(x=>x.id===editingId);if(idx>=0)parent.logs[idx]=newLog}else{(parent.logs=parent.logs||[]).push(newLog)}
   recalcSummary(parent,type);pendingAttach=null;closeModal();renderContent();renderNav();toast(editingId?'已更新':'已添加');
 }
-function closeModal(){stopShortRelay();stopQrScan();document.querySelector('.modal').classList.remove('modal-wide','settings-modal');document.getElementById('modalBody').className='mbody';document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;resetAttachDraft();hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
+function closeModal(){stopShortRelay();stopQrScan();clearSyncDiagTimer();syncDiag=null;document.querySelector('.modal').classList.remove('modal-wide','settings-modal');document.getElementById('modalBody').className='mbody';document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;resetAttachDraft();hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
 document.getElementById('mask').addEventListener('click',e=>{if(e.target.id==='mask')closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('hwOverlay').classList.remove('show')}});
 
@@ -1942,8 +1952,10 @@ function openSyncModal(){
   const qrImageInput=document.getElementById('qrImageInput');if(qrImageInput)qrImageInput.onchange=decodeQrImageFile;
   updateSyncScopeSummary();
   document.getElementById('modeHint').textContent='双方都确认后才写入；中断不会修改本机数据';
+  syncDiagReset();armSyncDiagTimer();
   document.getElementById('modalSave').onclick=copySyncLocalCode;
   document.getElementById('modalSave').textContent='复制本机码';
+  renderSyncDiagPanel();
   document.getElementById('mask').classList.add('show');
 }
 function toggleSyncScope(){const el=document.getElementById('syncScopeControls');if(el)el.style.display=el.style.display==='none'?'block':'none'}
@@ -1956,9 +1968,9 @@ function syncStatus(msg){const el=document.getElementById('syncStatus');if(el)el
 function copySyncLocalCode(){const code=document.getElementById('syncLocal')?.value||'';if(!code){toast('请先生成二维码');return}navigator.clipboard&&navigator.clipboard.writeText(code).then(()=>toast('已复制本机码'))}
 function renderSyncQr(text){const el=document.getElementById('syncQr');if(!el)return;el.innerHTML='';if(!text){el.textContent='点击下方按钮生成二维码';return}if(typeof qrcode==='undefined'){el.textContent='二维码库未加载，可复制配对码继续';return}try{const qr=qrcode(0,'M');qr.addData(text);qr.make();el.innerHTML=qr.createSvgTag({cellSize:4,margin:2});el.querySelector('svg').setAttribute('aria-label','本机配对二维码')}catch(e){el.textContent='配对码较长，二维码生成失败，请复制文本配对'}}
 function resetSyncAuthorization(){syncOfferedScope=null;syncFrozenManifest=null;syncOfferedIdentityIds=new Set()}
-function setupSyncPc(){const session=++syncSessionId;clearSyncConnectTimeout();clearSyncConnectHelp();syncPc&&syncPc.close();syncDc=null;syncIncoming=null;resetSyncAuthorization();syncPc=new RTCPeerConnection({iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']}]});syncPc.oniceconnectionstatechange=()=>{if(session!==syncSessionId)return;const state=syncPc.iceConnectionState;if(state==='failed')handleSyncConnectFailure('连接失败：请确认两台设备在同一网络，并关闭系统代理或 VPN 后重试');else if(state==='disconnected')syncStatus('连接中断，正在尝试恢复...');else if(state==='connected'||state==='completed'){clearSyncConnectTimeout();clearSyncConnectHelp();syncStatus('已连接')}else syncStatus('连接状态：'+state)};syncPc.ondatachannel=e=>setupSyncChannel(e.channel,session);return syncPc}
-function setupSyncChannel(ch,session=syncSessionId){if(session!==syncSessionId)return;syncDc=ch;syncDc.binaryType='arraybuffer';syncDc.onopen=()=>{if(session!==syncSessionId||syncDc!==ch)return;clearSyncConnectTimeout();clearSyncConnectHelp();syncOfferedScope=cloneState(syncScope());syncStatus('已连接，可以发送备份');if(syncShort&&syncShort.ws){try{syncShort.ws.close()}catch(e){}syncShort.ws=null}setTimeout(()=>{if(session===syncSessionId&&syncDc===ch&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'scope-offer',scope:syncOfferedScope},{channel:ch,session})},500)};syncDc.onmessage=e=>{if(session===syncSessionId&&syncDc===ch)receiveSyncMessage(e.data)};syncDc.onclose=()=>{if(session===syncSessionId&&syncDc===ch)resetSyncAuthorization()};syncDc.onerror=()=>{if(session===syncSessionId&&syncDc===ch)syncStatus('连接出错')}}
-async function waitIce(pc,ms=4000){if(pc.iceGatheringState==='complete')return;const started=Date.now();await new Promise(resolve=>{const timer=setInterval(tick,1000);function tick(){if(pc.iceGatheringState==='complete'||Date.now()-started>=ms){clearInterval(timer);pc.removeEventListener('icegatheringstatechange',tick);resolve()}else syncStatus('正在收集网络候选...'+Math.floor((Date.now()-started)/1000)+'s')}pc.addEventListener('icegatheringstatechange',tick);tick()})}
+function setupSyncPc(){const session=++syncSessionId;clearSyncConnectTimeout();clearSyncConnectHelp();syncPc&&syncPc.close();syncDc=null;syncIncoming=null;resetSyncAuthorization();traceSync('初始化连接','创建 RTCPeerConnection');syncPc=new RTCPeerConnection({iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']}]});syncPc.oniceconnectionstatechange=()=>{if(session!==syncSessionId)return;const state=syncPc.iceConnectionState;traceSync('ICE 状态',state);if(state==='failed')handleSyncConnectFailure('连接失败：请确认两台设备在同一网络，并关闭系统代理或 VPN 后重试');else if(state==='disconnected')syncStatus('连接中断，正在尝试恢复...');else if(state==='connected'||state==='completed'){clearSyncConnectTimeout();clearSyncConnectHelp();syncStatus('已连接')}else syncStatus('连接状态：'+state)};syncPc.ondatachannel=e=>setupSyncChannel(e.channel,session);return syncPc}
+function setupSyncChannel(ch,session=syncSessionId){if(session!==syncSessionId)return;syncDc=ch;syncDc.binaryType='arraybuffer';traceSync('数据通道','已创建');syncDc.onopen=()=>{if(session!==syncSessionId||syncDc!==ch)return;clearSyncConnectTimeout();clearSyncConnectHelp();syncOfferedScope=cloneState(syncScope());traceSync('数据通道','已打开，直连建立');syncStatus('已连接，可以发送备份');if(syncShort&&syncShort.ws){try{syncShort.ws.close()}catch(e){}syncShort.ws=null}setTimeout(()=>{if(session===syncSessionId&&syncDc===ch&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'scope-offer',scope:syncOfferedScope},{channel:ch,session})},500)};syncDc.onmessage=e=>{if(session===syncSessionId&&syncDc===ch)receiveSyncMessage(e.data)};syncDc.onclose=()=>{if(session===syncSessionId&&syncDc===ch){traceSync('数据通道','已关闭');resetSyncAuthorization()}};syncDc.onerror=()=>{if(session===syncSessionId&&syncDc===ch){traceSync('数据通道','出错');syncStatus('连接出错')}}}
+async function waitIce(pc,ms=4000){if(pc.iceGatheringState==='complete')return;const started=Date.now();traceSync('收集网络候选','开始');await new Promise(resolve=>{const timer=setInterval(tick,1000);function tick(){if(pc.iceGatheringState==='complete'||Date.now()-started>=ms){clearInterval(timer);pc.removeEventListener('icegatheringstatechange',tick);traceSync('收集网络候选','完成，用时'+formatDiagTime(Date.now()-started));resolve()}else syncStatus('正在收集网络候选...'+Math.floor((Date.now()-started)/1000)+'s')}pc.addEventListener('icegatheringstatechange',tick);tick()})}
 function clearSyncConnectTimeout(){if(syncConnectTimer){clearTimeout(syncConnectTimer);syncConnectTimer=null}}
 function armSyncConnectTimeout(message,seconds=25){clearSyncConnectTimeout();syncConnectTimer=setTimeout(()=>{syncConnectTimer=null;if(!syncDc||syncDc.readyState!=='open')handleSyncConnectFailure(message||'连接超时，未建立数据通道')},seconds*1000)}
 function clearSyncConnectHelp(){const el=document.getElementById('syncConnectHelp');if(el)el.innerHTML=''}
@@ -1966,9 +1978,20 @@ function renderSyncConnectHelp(message){const el=document.getElementById('syncCo
 function handleSyncConnectFailure(message){clearSyncConnectTimeout();syncStatus(message||'连接失败');renderSyncConnectHelp(message||'连接失败')}
 function encodeDesc(desc){const text=JSON.stringify(desc);return 'ph1.'+(window.LZString?LZString.compressToEncodedURIComponent(text):btoa(text))}
 function decodeDesc(code){if(code.startsWith('ph1.')){const body=code.slice(4);const text=window.LZString?LZString.decompressFromEncodedURIComponent(body):null;if(text)return JSON.parse(text);throw new Error('当前页面未加载配对码解压库')}return JSON.parse(atob(code))}
-async function syncCreateOffer(){try{syncRole='offerer';syncStatus('正在创建发送码...');const pc=setupSyncPc();setupSyncChannel(pc.createDataChannel('backup'));await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);syncStatus('发送码已生成，复制或扫码给另一台设备')}catch(e){syncStatus('创建发送码失败：'+e.message)}}
-async function syncCreateAnswer(){try{const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请先粘贴发送码');return}syncRole='answerer';syncStatus('正在生成接收码...');const pc=setupSyncPc();await pc.setRemoteDescription(decodeDesc(remote));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);armSyncConnectTimeout('等待对方连接超时：对方 60 秒内没有建立连接，请重新生成接收码。',60);syncStatus('接收码已生成，等待对方扫码连接...')}catch(e){handleSyncConnectFailure('生成接收码失败：'+e.message)}}
-async function syncAcceptAnswer(){try{if(!syncPc){toast('请先创建发送码');return}const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请粘贴接收码');return}clearSyncConnectHelp();syncStatus('正在连接...');await syncPc.setRemoteDescription(decodeDesc(remote));armSyncConnectTimeout('连接超时：25 秒内未建立数据通道，请重新开始配对。',25);syncStatus('正在连接...（最长约25秒）')}catch(e){handleSyncConnectFailure('连接失败：'+e.message)}}
+async function syncCreateOffer(){try{syncRole='offerer';syncStatus('正在创建发送码...');traceSync('创建发送码','初始化 WebRTC');const pc=setupSyncPc();setupSyncChannel(pc.createDataChannel('backup'));await pc.setLocalDescription(await pc.createOffer());traceSync('创建发送码','本地 SDP 已生成');await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);traceSync('等待扫码','发送码已生成');syncStatus('发送码已生成，复制或扫码给另一台设备')}catch(e){traceSync('创建发送码失败',e.message);syncStatus('创建发送码失败：'+e.message)}}
+async function syncCreateAnswer(){try{const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请先粘贴发送码');return}syncRole='answerer';syncStatus('正在生成接收码...');traceSync('生成接收码','解析对方发送码');const pc=setupSyncPc();await pc.setRemoteDescription(decodeDesc(remote));await pc.setLocalDescription(await pc.createAnswer());traceSync('生成接收码','本地 SDP 已生成');await waitIce(pc);const code=encodeDesc(pc.localDescription);document.getElementById('syncLocal').value=code;renderSyncQr(code);armSyncConnectTimeout('等待对方连接超时：对方 60 秒内没有建立连接，请重新生成接收码。',60);traceSync('等待对方扫码','接收码已生成');syncStatus('接收码已生成，等待对方扫码连接...')}catch(e){traceSync('生成接收码失败',e.message);handleSyncConnectFailure('生成接收码失败：'+e.message)}}
+async function syncAcceptAnswer(){try{if(!syncPc){toast('请先创建发送码');return}const remote=document.getElementById('syncRemote').value.trim();if(!remote){toast('请粘贴接收码');return}clearSyncConnectHelp();syncStatus('正在连接...');traceSync('建立直连','解析回传码');await syncPc.setRemoteDescription(decodeDesc(remote));armSyncConnectTimeout('连接超时：25 秒内未建立数据通道，请重新开始配对。',25);traceSync('建立直连','等待数据通道');syncStatus('正在连接...（最长约25秒）')}catch(e){traceSync('建立直连失败',e.message);handleSyncConnectFailure('连接失败：'+e.message)}}
+
+function syncDiagReset(){syncDiag={startedAt:Date.now(),stage:'等待操作',stageAt:Date.now(),logs:[]};syncDiagRender()}
+function renderSyncDiagPanel(){const statusEl=document.getElementById('syncStatus');if(!statusEl||document.getElementById('syncDiagStage'))return;const details=document.createElement('details');details.className='sync-diag';const summary=document.createElement('summary');summary.style.display='flex';const stage=document.createElement('span');stage.id='syncDiagStage';stage.className='sync-diag-stage';stage.textContent='等待操作';const elapsed=document.createElement('span');elapsed.id='syncDiagElapsed';elapsed.className='sync-diag-elapsed';elapsed.textContent='0ms';summary.appendChild(stage);summary.appendChild(elapsed);const body=document.createElement('div');body.className='sync-diag-body';const tools=document.createElement('div');tools.className='sync-diag-tools';const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.className='btn ghost';copyBtn.textContent='复制日志';copyBtn.onclick=syncDiagCopy;const downloadBtn=document.createElement('button');downloadBtn.type='button';downloadBtn.className='btn ghost';downloadBtn.textContent='下载日志';downloadBtn.onclick=syncDiagDownload;tools.appendChild(copyBtn);tools.appendChild(downloadBtn);const log=document.createElement('div');log.id='syncDiagLog';log.className='sync-diag-log';body.appendChild(tools);body.appendChild(log);details.appendChild(summary);details.appendChild(body);statusEl.insertAdjacentElement('afterend',details)}
+function syncDiagDump(){if(!syncDiag)return[];const out=[];for(let i=0;i<syncDiag.logs.length;i++){const l=syncDiag.logs[i];out.push((l.time+1000).toString().slice(1)+' '+l.delta+' '+l.stage+' '+(l.detail||''))}return out}
+function syncDiagCopy(){const text=syncDiagDump().join('\n');if(!text){toast('暂无诊断日志');return}if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(()=>toast('诊断日志已复制')).catch(()=>toast('诊断日志：'+text));else toast('诊断日志：'+text)}
+function syncDiagDownload(){const text=syncDiagDump().join('\n');if(!text){toast('暂无诊断日志');return}const blob=new Blob([text],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sync-diag-'+new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')+'.log';a.click();URL.revokeObjectURL(a.href)}
+function syncDiagRender(){if(!syncDiag)return;const stageEl=document.getElementById('syncDiagStage'),elapsedEl=document.getElementById('syncDiagElapsed'),logEl=document.getElementById('syncDiagLog');if(stageEl)stageEl.textContent=syncDiag.stage;if(elapsedEl)elapsedEl.textContent=formatDiagTime(Date.now()-syncDiag.stageAt);if(logEl){let text='';for(let i=Math.max(0,syncDiag.logs.length-80);i<syncDiag.logs.length;i++){const l=syncDiag.logs[i];text+=(l.time+1000).toString().slice(1)+' '+l.delta+' '+l.stage+(l.detail?' '+l.detail:'')+'\n'}if(logEl.textContent!==text){const stick=!syncDiagAutoScroll||logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<40;logEl.textContent=text;if(stick)logEl.scrollTop=logEl.scrollHeight}if(!syncDiagAutoScroll&&logEl.childNodes.length){logEl.scrollTop=logEl.scrollHeight;syncDiagAutoScroll=true}}}
+function formatDiagTime(ms){if(!isFinite(ms)||ms<0)ms=0;if(ms<1000)return ms+'ms';if(ms<60000)return (ms/1000).toFixed(1)+'s';return Math.floor(ms/60000)+'m'+Math.floor(ms%60000/1000)+'s'}
+function traceSync(stage,detail){if(!syncDiag)syncDiag={startedAt:Date.now(),stage:stage||'同步',stageAt:Date.now(),logs:[]};const now=Date.now();if(stage){syncDiag.stage=stage;syncDiag.stageAt=now}const proto=syncProtocolTrace.slice(syncDiag.logs.length);for(const type of proto){syncDiag.logs.push({time:now,delta:'',stage:'消息:'+type,detail:''})}if(stage||detail){syncDiag.logs.push({time:now,delta:formatDiagTime(now-syncDiag.startedAt),stage:stage||syncDiag.stage,detail:detail||''})}if(syncDiag.logs.length>160)syncDiag.logs.splice(0,syncDiag.logs.length-160);syncDiagRender()}
+function armSyncDiagTimer(){clearSyncDiagTimer();syncDiagTimer=setInterval(()=>{if(!syncDiag||!document.querySelector('.modal.show')&&!document.getElementById('modalBody').querySelector('.sync-diag')){clearSyncDiagTimer();return}syncDiagRender()},1000)}
+function clearSyncDiagTimer(){if(syncDiagTimer){clearInterval(syncDiagTimer);syncDiagTimer=null}}
 
 
 function shortRelayUrl(){try{return new URL(new URLSearchParams(location.search).get('relay')||'https://personal-hub-shortcode-relay.zal-pc-remote.workers.dev').toString().replace(/\/+$/,'')}catch(e){return ''}}
@@ -1981,6 +2004,7 @@ async function syncShortCreate(){
   const clientId=shortCodeId();
   try{
     syncStatus('正在创建短码房间...');
+    traceSync('创建短码房间','请求中继');
     const created=await shortRelayRequest('/api/room',{method:'POST',body:JSON.stringify({clientId})});
     syncShort={role:'creator',clientId,token:created.token,code:created.code,peer:0,since:0,seen:new Set(),poller:null,stopped:false,offerSent:false,pendingIce:[]};
     const display=document.getElementById('shortCodeDisplay');
@@ -1991,11 +2015,12 @@ async function syncShortCreate(){
     if(stateEl)stateEl.textContent='已创建，有效期约 5 分钟';
     if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(created.code).catch(()=>{})}
     syncStatus('等待另一台设备加入'+created.code+'...');
+    traceSync('等待对方加入','短码 '+created.code);
     armShortRelayTimeout('等待对方加入超时：45 秒内没有设备加入，请重新创建。',45);
     await startShortRelayPc();
     startShortRelayWs();
   }catch(error){
-    syncShort=null;syncStatus('创建短码失败：'+error.message);toast('创建短码失败：'+error.message);
+    syncShort=null;traceSync('创建短码失败',error.message);syncStatus('创建短码失败：'+error.message);toast('创建短码失败：'+error.message);
   }
 }
 async function syncShortJoin(){
@@ -2007,6 +2032,7 @@ async function syncShortJoin(){
   const clientId=shortCodeId();
   try{
     syncStatus('正在加入短码房间...');
+    traceSync('加入短码房间','短码 '+code);
     const joined=await shortRelayRequest('/api/room/'+code+'/join',{method:'POST',body:JSON.stringify({clientId})});
     syncShort={role:'joiner',clientId,token:joined.token,code,peer:1,since:0,seen:new Set(),poller:null,stopped:false,offerSent:false,pendingIce:[]};
     const relayName=document.getElementById('shortRelayName');
@@ -2018,12 +2044,13 @@ async function syncShortJoin(){
     await startShortRelayPc();
     startShortRelayWs();
   }catch(error){
-    syncShort=null;syncStatus('加入失败：'+error.message);toast('加入失败：'+error.message);
+    syncShort=null;traceSync('加入失败',error.message);syncStatus('加入失败：'+error.message);toast('加入失败：'+error.message);
   }
 }
 async function startShortRelayPc(){
   if(!syncShort||syncShort.stopped)return;
   syncRole=syncShort.role==='creator'?'short-creator':'short-joiner';
+  traceSync('短码协商','生成并发送 offer');
   const pc=setupSyncPc();
   pc.onicecandidate=e=>{if(!syncShort||syncShort.stopped)return;if(!e.candidate)return;if(!syncShort.offerSent){syncShort.pendingIce.push(e.candidate);return}shortRelaySend('ice',JSON.stringify(e.candidate),pc)};
   if(syncShort.role==='joiner'){
@@ -2058,6 +2085,7 @@ async function handleShortRelayEvents(events){
 function startShortRelayWs(){
   if(!syncShort||syncShort.stopped||typeof WebSocket==='undefined'){startShortRelayPolling();return}
   const base=shortRelayUrl();if(!base){startShortRelayPolling();return}
+  traceSync('信令通道','尝试 WebSocket');
   const u=new URL(base);u.protocol=u.protocol==='https:'?'wss:':'ws:';
   const wsUrl=u.toString().replace(/\/+$/,'')+'/api/room/'+syncShort.code+'/ws?token='+encodeURIComponent(syncShort.token)+'&clientId='+encodeURIComponent(syncShort.clientId)+'&since='+(syncShort.since||0);
   let ws;
@@ -2068,9 +2096,10 @@ function startShortRelayWs(){
     syncShort.ws=null;
     try{ws.close()}catch(e){}
     if(syncDc&&syncDc.readyState==='open')return;
+    traceSync('信令通道','WebSocket 中断，切换轮询');
     startShortRelayPolling();
   };
-  ws.onopen=()=>{if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;if(syncShort.role==='joiner')syncStatus('信令通道已建立，等待直连...')};
+  ws.onopen=()=>{if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;traceSync('信令通道','WebSocket 已建立');if(syncShort.role==='joiner')syncStatus('信令通道已建立，等待直连...')};
   ws.onmessage=async event=>{
     if(!syncShort||syncShort.stopped||syncShort.ws!==ws)return;
     try{
@@ -2084,6 +2113,7 @@ function startShortRelayWs(){
 }
 async function startShortRelayPolling(){
   if(!syncShort||syncShort.stopped)return;
+  traceSync('信令通道','改用 HTTP 轮询');
   const poll=async()=>{
     if(!syncShort||syncShort.stopped)return;
     try{
@@ -2097,7 +2127,7 @@ async function startShortRelayPolling(){
     }catch(error){
       if(!syncShort||syncShort.stopped)return;
       if(syncDc&&syncDc.readyState==='open'){syncShort.poller=null;return}
-      clearSyncConnectTimeout();syncStatus('短码中继中断：'+error.message);toast('短码中继中断：'+error.message);stopShortRelay();
+      clearSyncConnectTimeout();traceSync('中继中断',error.message);syncStatus('短码中继中断：'+error.message);toast('短码中继中断：'+error.message);stopShortRelay();
     }
   };
   syncShort.poller=setTimeout(poll,600);
@@ -2107,6 +2137,7 @@ async function handleShortOffer(payload){
   const session=syncSessionId;
   if(!syncPc||session!==syncSessionId)return;
   try{
+    traceSync('短码协商','收到 offer');
     syncStatus('已收到对方连接请求，正在回传...');
     await syncPc.setRemoteDescription(JSON.parse(payload));
     await syncPc.setLocalDescription(await syncPc.createAnswer());
@@ -2115,9 +2146,9 @@ async function handleShortOffer(payload){
     syncShort.offerSent=true;
     const pending=syncShort.pendingIce.splice(0);
     for(const candidate of pending){if(syncShort&&!syncShort.stopped)await shortRelaySend('ice',JSON.stringify(candidate),syncPc)}
-    syncStatus('已回传，等待直连建立...');
+    traceSync('短码协商','answer 已回传');syncStatus('已回传，等待直连建立...');
   }catch(error){
-    clearSyncConnectTimeout();syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
+    clearSyncConnectTimeout();traceSync('短码协商失败',error.message);syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
   }
 }
 async function handleShortAnswer(payload){
@@ -2125,10 +2156,11 @@ async function handleShortAnswer(payload){
   const session=syncSessionId;
   if(!syncPc||session!==syncSessionId)return;
   try{
+    traceSync('短码协商','收到 answer');
     syncStatus('已收到对方应答，正在建立直连...');
     await syncPc.setRemoteDescription(JSON.parse(payload));
   }catch(error){
-    clearSyncConnectTimeout();syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
+    clearSyncConnectTimeout();traceSync('短码协商失败',error.message);syncStatus('短码协商失败：'+error.message);toast('短码协商失败：'+error.message);stopShortRelay();
   }
 }
 async function handleShortIce(payload){
@@ -2200,7 +2232,7 @@ function selectSyncReview(choice){document.querySelectorAll('[data-sync-operatio
 function updateSyncPlanSummary(){const inputs=[...document.querySelectorAll('[data-sync-operation]:checked')],map=new Map(syncPreviewPlan.operations.map(op=>[op.id,op])),includeAttachments=document.getElementById('syncReviewAttachments')?.checked!==false;let bytes=0;inputs.forEach(input=>{const op=map.get(input.value);if(op)bytes+=(op.meta.size||0)+(includeAttachments?(op.meta.attachmentBytes||0):0)});const el=document.getElementById('syncPlanSummary');if(el)el.textContent=`将接收 ${inputs.length} 条，${formatSyncBytes(bytes)}`}
 async function receiveSyncManifest(manifest){syncRemoteManifest=manifest;syncLocalManifest=await SyncCore.buildManifest(state,manifest.scope);syncPreviewPlan=previewSyncPlan(manifest,syncLocalManifest);renderSyncReview()}
 async function confirmSelectiveSync(){
-  try{await saveNow();const visible=[...document.querySelectorAll('[data-sync-operation]:checked')].map(input=>input.value),remoteIds=new Set([...syncEntryMap(syncRemoteManifest).keys()]),internal=syncPreviewPlan.operations.filter(op=>op.category==='same'&&remoteIds.has(op.id)).map(op=>op.id);if(document.getElementById('syncReviewAttachments')?.checked)visible.push('@attachments');const ids=normalizeSyncOperationIds([...new Set([...visible,...internal])]);syncIncoming={requestedIds:ids,waiting:true};document.querySelectorAll('[data-sync-step]').forEach(el=>el.classList.toggle('active',el.dataset.syncStep==='confirm'));const pane=document.getElementById('syncComparePane');pane.innerHTML=`<div class="sync-result"><strong>等待对方数据</strong><div class="sync-progress"><span id="syncProgressBar" style="width:8%"></span></div><div class="sync-summary" id="syncPlanSummary">已确认 ${visible.filter(id=>!id.startsWith('@')).length} 条</div><button class="btn ghost" onclick="abortSelectiveSync('用户取消')">取消同步</button></div>`;sendSyncV2({protocol:SYNC_PROTOCOL,type:'plan-selection',operationIds:ids})}catch(error){syncStatus('确认失败：'+error.message)}
+  try{await saveNow();const visible=[...document.querySelectorAll('[data-sync-operation]:checked')].map(input=>input.value),remoteIds=new Set([...syncEntryMap(syncRemoteManifest).keys()]),internal=syncPreviewPlan.operations.filter(op=>op.category==='same'&&remoteIds.has(op.id)).map(op=>op.id);if(document.getElementById('syncReviewAttachments')?.checked)visible.push('@attachments');const ids=normalizeSyncOperationIds([...new Set([...visible,...internal])]);syncIncoming={requestedIds:ids,waiting:true};traceSync('确认同步','等待对方数据');document.querySelectorAll('[data-sync-step]').forEach(el=>el.classList.toggle('active',el.dataset.syncStep==='confirm'));const pane=document.getElementById('syncComparePane');pane.innerHTML=`<div class="sync-result"><strong>等待对方数据</strong><div class="sync-progress"><span id="syncProgressBar" style="width:8%"></span></div><div class="sync-summary" id="syncPlanSummary">已确认 ${visible.filter(id=>!id.startsWith('@')).length} 条</div><button class="btn ghost" onclick="abortSelectiveSync('用户取消')">取消同步</button></div>`;sendSyncV2({protocol:SYNC_PROTOCOL,type:'plan-selection',operationIds:ids})}catch(error){syncStatus('确认失败：'+error.message)}
 }
 function parseSyncIdentity(id){const parsed=JSON.parse(id);return {pathSegments:parsed[0],parentId:parsed[1],id:parsed[2],moduleId:parsed[0][1]}}
 function normalizeSyncOperationIds(ids){const selected=new Set(ids);return ids.filter(id=>{if(id.startsWith('@'))return true;const identity=parseSyncIdentity(id);if(identity.pathSegments.length<=3)return true;const parentId=JSON.stringify([identity.pathSegments.slice(0,3),null,String(identity.parentId)]);return !selected.has(parentId)})}
@@ -2215,7 +2247,7 @@ function stripSyncAttachments(value){if(isFileRef(value))return null;if(Array.is
 async function buildSelectedSyncPayload(operationIds){const includeAttachments=operationIds.includes('@attachments'),includeSettings=operationIds.includes('@settings');let selectedState=selectedSyncState(operationIds);if(!includeAttachments)selectedState=stripSyncAttachments(selectedState);const fileIds=includeAttachments?[...collectFileRefs(selectedState)]:[],files=[];for(const id of fileIds){const rec=await idbStoreGet(FILE_STORE,id);if(rec&&rec.blob)files.push({id:rec.id,name:rec.name,type:rec.type,size:rec.size,kind:rec.kind,createdAt:rec.createdAt,dataUrl:await blobToDataUrl(rec.blob),hash:await SyncCore.hashBlob(rec.blob)})}return {scope:{modules:Object.keys(selectedState.modules),includeSettings,includeAttachments},state:selectedState,files}}
 async function sendSelectedRecords(operationIds){
   const session=syncSessionId,ch=syncDc;
-  try{const ids=Array.isArray(operationIds)?operationIds.map(String):[];if(!syncSelectionAuthorized(ids))throw new Error('对方请求超出已选择范围');const payload=await buildSelectedSyncPayload(ids);if(session!==syncSessionId||syncDc!==ch)throw new Error('连接已更新，请重新确认同步');const text=JSON.stringify(payload),chunkSize=12000,total=Math.max(1,Math.ceil(text.length/chunkSize)),transferId=uid(),attachmentBytes=payload.files.reduce((sum,file)=>sum+(file.size||0),0),sendOptions={channel:ch,session};sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-start',transferId,modules:payload.scope.modules,totalChunks:total,totalBytes:new Blob([text]).size,attachmentCount:payload.files.length,attachmentBytes},sendOptions);for(let index=0;index<total;index++){while(session===syncSessionId&&syncDc===ch&&ch&&ch.bufferedAmount>512000)await new Promise(resolve=>setTimeout(resolve,20));if(session!==syncSessionId||syncDc!==ch)throw new Error('连接已更新，请重新确认同步');sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-chunk',chunk:{index,total,payload:text.slice(index*chunkSize,(index+1)*chunkSize)}},sendOptions)}sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-end',transferId,totalChunks:total,totalBytes:new Blob([text]).size},sendOptions)}catch(error){if(session===syncSessionId&&syncDc===ch)abortSelectiveSync('发送失败：'+error.message)}
+  try{const ids=Array.isArray(operationIds)?operationIds.map(String):[];if(!syncSelectionAuthorized(ids))throw new Error('对方请求超出已选择范围');traceSync('发送数据','准备数据与附件');const payload=await buildSelectedSyncPayload(ids);if(session!==syncSessionId||syncDc!==ch)throw new Error('连接已更新，请重新确认同步');const text=JSON.stringify(payload),chunkSize=12000,total=Math.max(1,Math.ceil(text.length/chunkSize)),transferId=uid(),attachmentBytes=payload.files.reduce((sum,file)=>sum+(file.size||0),0),sendOptions={channel:ch,session};sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-start',transferId,modules:payload.scope.modules,totalChunks:total,totalBytes:new Blob([text]).size,attachmentCount:payload.files.length,attachmentBytes},sendOptions);for(let index=0;index<total;index++){while(session===syncSessionId&&syncDc===ch&&ch&&ch.bufferedAmount>512000)await new Promise(resolve=>setTimeout(resolve,20));if(session!==syncSessionId||syncDc!==ch)throw new Error('连接已更新，请重新确认同步');sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-chunk',chunk:{index,total,payload:text.slice(index*chunkSize,(index+1)*chunkSize)}},sendOptions)}sendSyncV2({protocol:SYNC_PROTOCOL,type:'data-end',transferId,totalChunks:total,totalBytes:new Blob([text]).size},sendOptions);traceSync('发送数据','共 '+total+' 块已发送')}catch(error){if(session===syncSessionId&&syncDc===ch)abortSelectiveSync('发送失败：'+error.message)}
 }
 function countConflictCopies(value){let count=0;(function visit(node){if(!node||typeof node!=='object')return;if(node._sync&&node._sync.conflictOf!=null)count++;Object.keys(node).forEach(key=>{if(key!=='_sync')visit(node[key])})})(value);return count}
 async function validateIncomingSyncPayload(payload,stage){
@@ -2240,13 +2272,13 @@ async function writeSyncTransaction(nextState,files,recoveryPoint,deleteRecovery
   persistedStateMeta=nextMeta;persistedShadow=cloneState(nextState);state=cloneState(nextState);stateRevision++;persistedRevision=stateRevision;try{localStorage.removeItem(PENDING_JOURNAL_KEY)}catch(error){}renderNav();renderContent();updateStorageInfo();return nextMeta;
 }
 async function commitIncomingSync(stage){
-  const payload=JSON.parse(stage.chunks.join('')),files=await validateIncomingSyncPayload(payload,stage),before=cloneState(state),plan=await SyncCore.buildMergePlan(payload.state,before,payload.scope),selected=new Set(stage.requestedIds||[]),next=await SyncCore.applyMergePlan(plan,before,{selectedOperationIds:selected}),point=RecoveryCore.createRecoveryPoint(before,{id:'sync-'+Date.now()+'-'+uid(),kind:'device-sync',label:'设备同步前'}),beforeCopies=countConflictCopies(before),afterCopies=countConflictCopies(next);await writeSyncTransaction(next,files,point);syncLastRecovery=point;const copies=Math.max(0,afterCopies-beforeCopies);syncLastResult=summarizeSyncResult(plan,selected,copies,0);renderSyncResult(syncLastResult);sendSyncV2({protocol:SYNC_PROTOCOL,type:'commit-result',transferId:stage.transferId,ok:true});
+  traceSync('数据校验','收到完整数据，开始校验');const payload=JSON.parse(stage.chunks.join('')),files=await validateIncomingSyncPayload(payload,stage),before=cloneState(state),plan=await SyncCore.buildMergePlan(payload.state,before,payload.scope),selected=new Set(stage.requestedIds||[]),next=await SyncCore.applyMergePlan(plan,before,{selectedOperationIds:selected}),point=RecoveryCore.createRecoveryPoint(before,{id:'sync-'+Date.now()+'-'+uid(),kind:'device-sync',label:'设备同步前'}),beforeCopies=countConflictCopies(before),afterCopies=countConflictCopies(next);await writeSyncTransaction(next,files,point);syncLastRecovery=point;const copies=Math.max(0,afterCopies-beforeCopies);syncLastResult=summarizeSyncResult(plan,selected,copies,0);traceSync('数据写入','事务已提交');renderSyncResult(syncLastResult);sendSyncV2({protocol:SYNC_PROTOCOL,type:'commit-result',transferId:stage.transferId,ok:true});
 }
 function summarizeSyncResult(plan,selected,copies,failures=0){const stats={add:0,update:0,conflictCopy:copies||0,delete:0,skip:0,failure:failures||0};(plan.operations||[]).forEach(op=>{if(op.category==='same')return;const picked=selected.has(String(op.id));if(!picked){stats.skip++;return}if(op.category==='add')stats.add++;else if(op.category==='update')stats.update++;else if(op.category==='pendingDelete')stats.delete++});return stats}
 function renderSyncFailureResult(){const selected=new Set([...document.querySelectorAll('[data-sync-operation]:checked')].map(input=>input.value)),stats=syncPreviewPlan?summarizeSyncResult(syncPreviewPlan,selected,0,1):{add:0,update:0,conflictCopy:0,delete:0,skip:0,failure:1};renderSyncResult(stats,{ok:false})}
 function renderSyncResult(result,options={}){const ok=options.ok!==false,stats=result||{add:0,update:0,conflictCopy:0,delete:0,skip:0,failure:0},labels=[['新增',stats.add],['更新',stats.update],['冲突副本',stats.conflictCopy],['删除',stats.delete],['跳过',stats.skip],['失败',stats.failure]];document.querySelectorAll('[data-sync-step]').forEach(el=>el.classList.toggle('active',el.dataset.syncStep==='confirm'));const pane=document.getElementById('syncComparePane');pane.style.display='block';pane.innerHTML=`<div class="sync-result"><strong>${ok?'同步完成':'同步未完成'}</strong><div style="margin-top:6px">已创建 ${stats.conflictCopy} 条同步副本</div><div class="sync-summary">${ok?'所有选中内容已作为一个事务写入本机。':'本机数据保持原样，请检查双方选择后重试。'}</div><div class="sync-summary" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px">${labels.map(([label,value])=>`<span data-sync-result="${label}">${label} ${value}</span>`).join('')}</div>${ok?'<button class="btn ghost" onclick="undoLastOperation()">撤销本次同步</button>':''}</div>`;syncStatus(ok?'同步完成':'同步未完成')}
 async function undoLastOperation(){if(!syncLastRecovery)return;try{await writeSyncTransaction(cloneState(syncLastRecovery.state),[],null,syncLastRecovery.id);syncLastRecovery=null;const pane=document.getElementById('syncComparePane');pane.innerHTML='<div class="sync-result"><strong>已撤销本次同步</strong><div class="sync-summary">本机数据已恢复到同步前。</div></div>';syncStatus('已撤销本次同步')}catch(error){syncStatus('撤销失败：'+error.message)}}
-function abortSelectiveSync(reason){syncIncoming=null;if(reason&&reason.indexOf('失败')>=0)renderSyncFailureResult();if(syncDc&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'abort',reason:reason||'同步已取消'});syncStatus(reason||'同步已取消')}
+function abortSelectiveSync(reason){traceSync('同步中止',reason||'用户取消');syncIncoming=null;if(reason&&reason.indexOf('失败')>=0)renderSyncFailureResult();if(syncDc&&syncDc.readyState==='open')sendSyncV2({protocol:SYNC_PROTOCOL,type:'abort',reason:reason||'同步已取消'});syncStatus(reason||'同步已取消')}
 async function syncSendBackup(){
   if(!syncDc||syncDc.readyState!=='open'){toast('设备还未连接');return}
   try{

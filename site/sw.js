@@ -1,5 +1,5 @@
-const CACHE_NAME = 'personal-hub-v1-local-first-8';
-const APP_VERSION = '2026-08-02.4';
+const CACHE_NAME = 'personal-hub-v1-local-first-9';
+const APP_VERSION = '2026-08-02.5';
 const META_CACHE = 'personal-hub-meta-v1';
 const ASSETS = [
   './', './index.html', './manifest.json', './sync-core.js', './recovery-core.js',

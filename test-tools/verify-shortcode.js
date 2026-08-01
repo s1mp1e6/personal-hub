@@ -95,7 +95,7 @@ async function main() {
     console.log('shortcode data channel open, code=' + code);
 
     // Transfer a backup through the established data channel.
-    await creator.locator('.modal details summary').click();
+    await creator.locator('.modal details summary', { hasText: '高级：查看长码' }).click();
     await creator.locator('button[onclick="syncSendBackup()"]').click();
     await joiner.waitForFunction((m) => {
       try {

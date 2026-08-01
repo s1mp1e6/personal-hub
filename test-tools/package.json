@@ -18,6 +18,7 @@
     "test:recovery-core": "node --test recovery-core.test.js",
     "test:core": "node --test sync-core.test.js recovery-core.test.js",
     "verify:shortcode": "node verify-shortcode.js",
+    "verify:sync-diag": "node verify-sync-diag.js",
     "test:relay": "node --test relay.test.js"
   },
   "keywords": [],
