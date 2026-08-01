@@ -331,6 +331,27 @@
   .theme-pick button:hover{border-color:var(--line-strong)}
   .theme-pick button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
   .theme-swatch{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-strong);background:var(--swatch);flex:0 0 auto}
+  /* 设置面板 */
+  .modal.settings-modal{max-width:680px}
+  .settings-body{padding:6px 0 2px}
+  .settings-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px;margin-bottom:12px}
+  .settings-head{display:flex;align-items:flex-start;gap:10px}
+  .settings-ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto;background:var(--accent-soft);color:var(--accent)}
+  .settings-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
+  .settings-desc{font-size:12px;color:var(--ink-soft);line-height:1.65;margin-top:4px}
+  .settings-note{font-size:11px;color:var(--ink-faint);line-height:1.6;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .settings-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .settings-metric{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .settings-metric b{display:block;font-size:15px;color:var(--ink);font-weight:600;letter-spacing:0}
+  .settings-metric span{font-size:11px;color:var(--ink-faint);margin-top:2px;display:block}
+  .settings-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:999px;background:var(--green-soft);color:var(--green)}
+  .settings-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .settings-hint{font-size:11px;color:var(--ink-faint);margin-top:6px;line-height:1.5}
+  .settings-modal .theme-pick{grid-template-columns:repeat(4,1fr);margin-top:12px}
+  .settings-modal .theme-pick button{flex-direction:column;align-items:flex-start;gap:7px;padding:10px 11px;min-height:64px}
+  .settings-modal .theme-swatch{width:34px;height:24px;border-radius:7px}
+  @media(max-width:560px){.settings-grid{grid-template-columns:1fr}.settings-modal .theme-pick{grid-template-columns:repeat(2,1fr)}}
   .setting-box{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);color:var(--ink-soft)}
   .input-mode{display:flex;gap:8px;margin-bottom:16px;background:var(--bg);padding:4px;border-radius:10px}
   .input-mode button{flex:1;padding:9px;border-radius:7px;font-size:13px;color:var(--ink-soft);transition:all .12s}
@@ -480,7 +501,7 @@
       <button onclick="document.getElementById('importFile').click()" aria-label="导入备份文件">⬆导入</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
       <button onclick="openResetCenter()" aria-label="打开重置中心">↻重置</button>
-      <button onclick="openStorageInfo()" title="查看本机数据说明" aria-label="查看本机数据与备份说明"><span id="storageInfo">本机</span></button>
+      <button onclick="openStorageInfo()" title="打开设置" aria-label="打开设置"><span id="storageInfo">⚙ 设置</span></button>
     </div>
   </aside>
   <main class="main">
@@ -1602,7 +1623,7 @@ function saveLogForm(){
   if(editingId){const idx=(parent.logs||[]).findIndex(x=>x.id===editingId);if(idx>=0)parent.logs[idx]=newLog}else{(parent.logs=parent.logs||[]).push(newLog)}
   recalcSummary(parent,type);pendingAttach=null;closeModal();renderContent();renderNav();toast(editingId?'已更新':'已添加');
 }
-function closeModal(){stopShortRelay();stopQrScan();document.querySelector('.modal').classList.remove('modal-wide');document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;resetAttachDraft();hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
+function closeModal(){stopShortRelay();stopQrScan();document.querySelector('.modal').classList.remove('modal-wide','settings-modal');document.getElementById('modalBody').className='mbody';document.getElementById('mask').classList.remove('show');document.getElementById('modalSave').textContent='保存';editingId=null;resetAttachDraft();hwState={color:'#37352f',width:3,data:[],isDrawing:false,currentPath:[]};hwHeight=220;}
 document.getElementById('mask').addEventListener('click',e=>{if(e.target.id==='mask')closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('hwOverlay').classList.remove('show')}});
 
@@ -1685,29 +1706,34 @@ function openStorageInfo(){
   const size=new Blob([JSON.stringify(state)]).size;
   const fsSupported=!!window.showDirectoryPicker;
   const backupStatus=backupDirHandle?'已选择本机备份文件夹':'默认使用浏览器下载目录';
-  document.getElementById('modalTitle').textContent='本机数据与备份';
+  document.getElementById('modalTitle').textContent='设置';
+  document.querySelector('.modal').classList.add('settings-modal');
+  document.getElementById('modalBody').className='mbody settings-body';
   document.getElementById('modalBody').innerHTML=`
-    <div style="font-size:13px;color:var(--ink);line-height:1.8">
-      <div class="setting-box">
-        <strong style="color:var(--ink)">数据存储</strong>
-        <div style="font-size:12px;margin-top:4px">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现，建议定期导出。</div>
-        <div style="font-size:12px;color:var(--ink-faint);margin-top:6px">当前本机数据约 ${(size/1024).toFixed(1)}KB，附件包含在备份文件中。</div>
+    <div class="settings-section">
+      <div class="settings-head"><div class="settings-ico">💾</div><div><div class="settings-title">本机数据</div><div class="settings-desc">数据保存在这台设备的浏览器 IndexedDB 中，不会上传到服务器；清除站点数据或换设备后，原数据不会自动出现。</div></div></div>
+      <div class="settings-grid" style="margin-top:12px">
+        <div class="settings-metric"><b>${(size/1024).toFixed(1)} KB</b><span>当前本机数据（含附件）</span></div>
+        <div class="settings-metric"><span class="settings-status">本机优先</span><span style="margin-top:6px">离线可读可用</span></div>
       </div>
-      <div class="setting-box"><strong style="color:var(--ink)">主题</strong><div class="theme-pick" id="themePick"></div></div>
-      <div class="setting-box">
-        <strong style="color:var(--ink)">备份位置</strong>
-        <div style="margin-top:4px">${backupStatus}</div>
-        <div style="font-size:12px;margin-top:4px">网页不能静默写入任意默认路径；支持的浏览器可由你手动授权一个文件夹，之后导出会优先写入那里。</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+    </div>
+    <div class="settings-section">
+      <div class="settings-head"><div class="settings-ico">🎨</div><div><div class="settings-title">主题模式</div><div class="settings-desc">切换整个工作台的显示风格，选择会保存在本机。</div></div></div>
+      <div class="theme-pick" id="themePick"></div>
+    </div>
+    <div class="settings-grid">
+      <div class="settings-section" style="margin-bottom:0">
+        <div class="settings-head"><div class="settings-ico">📁</div><div><div class="settings-title">备份位置</div><div class="settings-desc">${backupStatus}</div></div></div>
+        <div class="settings-hint">网页不能静默写入任意默认路径；支持的浏览器可以手动授权一个文件夹，导出时优先写入那里。</div>
+        <div class="settings-actions">
           <button class="btn ghost" onclick="chooseBackupDir()" ${fsSupported?'':'disabled'} aria-label="选择本机备份文件夹">选择备份文件夹</button>
           <button class="btn ghost" onclick="clearBackupDir()" ${backupDirHandle?'':'disabled'} aria-label="清除备份文件夹授权">清除授权</button>
         </div>
-        ${fsSupported?'':'<div style="font-size:12px;color:var(--orange);margin-top:6px">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
+        ${fsSupported?'':'<div class="settings-hint" style="color:var(--orange)">当前浏览器不支持选择文件夹，将使用下载备份。</div>'}
       </div>
-      <div class="setting-box">
-        <strong style="color:var(--ink)">近距离设备同步</strong>
-        <div style="font-size:12px;margin-top:4px">两台设备在本机页面内完成扫码配对，通过 WebRTC 点对点传输数据，不经过云服务器。</div>
-        <button class="btn ghost" style="margin-top:8px;width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">打开设备同步</button>
+      <div class="settings-section" style="margin-bottom:0">
+        <div class="settings-head"><div class="settings-ico">📱</div><div><div class="settings-title">设备同步</div><div class="settings-desc">两台设备在本机页面内完成配对，数据通过 WebRTC 点对点传输，不经过云服务器。</div></div></div>
+        <div class="settings-actions"><button class="btn primary" style="width:100%" onclick="openSyncModal()" aria-label="打开近距离设备同步">打开设备同步</button></div>
       </div>
     </div>`;
   renderThemePick();
