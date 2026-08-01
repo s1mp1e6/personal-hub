@@ -12,6 +12,7 @@
     "verify:sync-v2": "node verify-sync-v2.js",
     "verify:qr": "node verify-qr-scanner.js",
     "verify:ux": "node verify-ux-fixes.js",
+    "verify:dashboard": "node verify-dashboard-v2.js",
     "verify:safety": "node verify-safety-flows.js",
     "test:sync-core": "node --test sync-core.test.js",
     "test:recovery-core": "node --test recovery-core.test.js",

@@ -86,6 +86,11 @@
   .nav-item .ni-del{opacity:0;color:var(--ink-faint);font-size:13px;padding:0 2px}
   .nav-item:hover .ni-del{opacity:1}
   .nav-item .ni-del:hover{color:var(--red)}
+  .nav-item .ni-pin{opacity:0;color:var(--ink-faint);font-size:12px;padding:0 2px}
+  .nav-item:hover .ni-pin{opacity:1}
+  .nav-item .ni-pin:hover{color:var(--accent)}
+  .nav-item.pinned{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+  .nav-item.pinned .ni-pin{opacity:.85}
   .nav-add{margin:6px 10px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;border:1px dashed var(--line-strong);transition:all .15s}
   .nav-add:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
   .sidebar .foot{padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:6px;align-items:center;font-size:11px;color:var(--ink-faint);flex-wrap:wrap}
@@ -111,7 +116,7 @@
   .mb-btn.primary{background:linear-gradient(135deg,var(--accent),#1a6fc0);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(35,131,226,.3)}
   .mb-btn.primary:hover{box-shadow:0 4px 12px rgba(35,131,226,.4)}
   .content{padding:24px 28px 80px;flex:1}
-  .quote-card,.stat-card,.dash-widget,.card,.detail-card,.tl-content,.modal,.quick-nav button{background:var(--card);color:var(--ink)}
+  .quote-card,.stat-card,.dash-widget,.card,.detail-card,.tl-content,.modal,.quick-nav button,.recent-panel{background:var(--card);color:var(--ink)}
   .sidebar .foot button,.nav-item.active .ni-count{background:var(--card)}
   :root[data-theme="dark"] .dash-hero{background:linear-gradient(135deg,#242424 0%,#252230 50%,#1f2a35 100%);border-color:var(--line)}
   :root[data-theme="dark"] .dash-clock{color:var(--ink)}
@@ -180,6 +185,17 @@
   .quick-nav{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .quick-nav button{padding:10px 18px;border-radius:10px;background:#fff;border:1px solid var(--line);font-size:13px;display:flex;align-items:center;gap:7px;box-shadow:var(--shadow);transition:all .15s;font-weight:500;min-height:42px}
   .quick-nav button:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.08)}
+  .quick-nav button.pinned{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--accent)}
+  .recent-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px 18px;margin-bottom:20px}
+  .recent-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--ink-faint);font-weight:600;letter-spacing:.5px;margin-bottom:12px}
+  .recent-list{display:flex;flex-direction:column;gap:4px}
+  .recent-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:9px;text-align:left;transition:background .12s,transform .12s}
+  .recent-item:hover{background:var(--bg);transform:translateX(2px)}
+  .recent-item .ni-ico{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+  .recent-body{flex:1;min-width:0}
+  .recent-title{display:block;font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .recent-sum{display:block;font-size:11px;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+  .recent-time{font-size:11px;color:var(--ink-faint);flex-shrink:0;font-variant-numeric:tabular-nums}
   .list-tools{max-width:780px;margin:0 auto 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .list-tools input{flex:1;min-width:180px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
   .list-tools button{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);font-size:12px;min-height:38px}
@@ -442,6 +458,7 @@
   :root[data-theme="dark"] .detail-card,
   :root[data-theme="dark"] .tl-content,
   :root[data-theme="dark"] .modal,
+  :root[data-theme="dark"] .recent-panel,
   :root[data-theme="dark"] .quick-nav button,
   :root[data-theme="dark"] .sidebar .foot button{background:var(--card);color:var(--ink);border-color:var(--line)}
   :root[data-theme="dark"] .stat-item{background:var(--bg)}
@@ -481,6 +498,9 @@
     .stat-grid{grid-template-columns:1fr 1fr;gap:10px}
     .quick-nav{justify-content:stretch}
     .quick-nav button{flex:1 1 calc(50% - 10px);justify-content:center;padding-left:10px;padding-right:10px}
+    .recent-panel{padding:12px 12px}
+    .recent-item{padding:7px 8px}
+    .recent-sum{display:none}
     .list-tools{align-items:stretch}
     .list-tools input{flex:1 1 100%;min-width:0}
     .list-tools button{flex:1}
@@ -538,6 +558,7 @@
 
 <div class="lp-menu" id="lpMenu">
   <button onclick="lpAction('edit')" aria-label="编辑当前项目"><span class="lp-ico">✎</span>编辑</button>
+  <button id="lpPinBtn" style="display:none" onclick="lpAction('pin')" aria-label="固定或取消固定当前模块"><span class="lp-ico">📌</span>固定/取消固定</button>
   <div class="lp-sep"></div>
   <button onclick="lpAction('up')" aria-label="上移当前项目"><span class="lp-ico">↑</span>上移</button>
   <button onclick="lpAction('down')" aria-label="下移当前项目"><span class="lp-ico">↓</span>下移</button>
@@ -592,7 +613,7 @@ if('serviceWorker' in navigator){
 
   });
 }
-const APP_VERSION='2026-08-02.3';
+const APP_VERSION='2026-08-02.4';
 const APP_BUILD='v'+(APP_VERSION.split('.')[1]||'1');
 const META_CACHE='personal-hub-meta-v1';
 let updateShown=false;
@@ -642,6 +663,7 @@ function loadDefaultState(){
       {id:uid(),type:'note',title:'本周计划',content:'整理实验数据，准备组会汇报，提交会议摘要。',size:'small'},
     ],
     moduleOrder:['dashboard','tasks','todos','papers','meetings','experiments','books','diary'],
+    pinnedModules:['tasks','todos','papers'],
     modules:{
       dashboard:{name:'桌面',icon:'🏠',color:'c1',type:'dashboard'},
       tasks:{name:'近期任务',icon:'📋',color:'c1',type:'task',items:[
@@ -934,16 +956,22 @@ function renderThemePick(){
 }
 
 /* 导航 */
+function defaultPinnedModules(){return ['tasks','todos','papers']}
+function pinnedModuleIds(){return Array.isArray(state.pinnedModules)?state.pinnedModules:defaultPinnedModules()}
+function modulePinned(mid){return mid!=='dashboard'&&!!state.modules[mid]&&pinnedModuleIds().includes(mid)}
+function ensurePinnedModules(){if(!Array.isArray(state.pinnedModules))state.pinnedModules=defaultPinnedModules();return state.pinnedModules}
+function toggleModulePin(mid){if(mid==='dashboard'||!state.modules[mid])return;const arr=ensurePinnedModules();const idx=arr.indexOf(mid);if(idx>=0)arr.splice(idx,1);else arr.push(mid);save();renderNav();renderContent();toast(idx>=0?'已取消固定':'已固定到首页')}
+function quickModuleOrder(){const pinned=pinnedModuleIds().filter(mid=>mid!=='dashboard'&&state.modules[mid]);const rest=state.moduleOrder.filter(mid=>mid!=='dashboard'&&state.modules[mid]&&!pinned.includes(mid));return [...pinned,...rest]}
 function renderNav(){
   document.getElementById('navList').innerHTML=state.moduleOrder.map(mid=>{
     const m=state.modules[mid];if(!m)return '';
     const count=(m.items&&mid!=='dashboard')?m.items.length:0;
-    return `<button class="nav-item ${mid===currentMod?'active':''}" data-mid="${mid}" onclick="switchMod('${mid}')" aria-label="打开模块：${esc(m.name)}"><span class="ni-ico ico ${m.color||'c1'}">${m.icon}</span><span class="ni-name">${esc(m.name)}</span>${count?`<span class="ni-count">${count}</span>`:''}<span class="ni-del" onclick="event.stopPropagation();editModuleMeta('${mid}')" title="编辑模块" role="button" aria-label="编辑模块：${esc(m.name)}" style="opacity:0;font-size:11px">✎</span></button>`;
+    return `<button class="nav-item ${mid===currentMod?'active':''} ${modulePinned(mid)?'pinned':''}" data-mid="${mid}" onclick="switchMod('${mid}')" aria-label="打开模块：${esc(m.name)}"><span class="ni-ico ico ${m.color||'c1'}">${m.icon}</span><span class="ni-name">${esc(m.name)}</span>${count?`<span class="ni-count">${count}</span>`:''}<span class="ni-pin" onclick="event.stopPropagation();toggleModulePin('${mid}')" title="${modulePinned(mid)?'取消固定':'固定到首页'}" role="button" aria-label="${modulePinned(mid)?'取消固定':'固定到首页'}：${esc(m.name)}">${modulePinned(mid)?'📌':'☆'}</span><span class="ni-del" onclick="event.stopPropagation();editModuleMeta('${mid}')" title="编辑模块" role="button" aria-label="编辑模块：${esc(m.name)}">✎</span></button>`;
   }).join('');
   // 给导航项绑定长按
   setTimeout(()=>{
     document.querySelectorAll('.nav-item[data-mid]').forEach(el=>{
-      bindLp(el,(rect)=>({type:'nav-module',mid:el.dataset.mid}),{exclude:'.ni-count,.ni-del'});
+      bindLp(el,(rect)=>({type:'nav-module',mid:el.dataset.mid}),{exclude:'.ni-count,.ni-pin,.ni-del'});
     });
   },0);
 }
@@ -1046,6 +1074,43 @@ function updateAddButton(){
 }
 
 /* 首页桌面 */
+function recentItemTime(item,type){
+  const logs=(type==='experiment'||type==='book')?(item.logs||[]):[];
+  const dates=[item.updatedAt,item.createdAt,item.date,item.due,item.startDate];
+  if(logs.length)dates.unshift([...logs].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))[0].date);
+  return dates.find(Boolean)||'';
+}
+function recentItemTitle(item,type){
+  if(type==='task'||type==='todo')return item.txt||'';
+  if(type==='diary')return item.title||'日记';
+  if(type==='note')return item.title||'便签';
+  return item.title||item.name||'';
+}
+function recentItemSummary(item,type){
+  if(type==='paper')return item.summary||item.info||'';
+  if(type==='meeting')return (item.points||[]).join(' · ')||'';
+  if(type==='diary'||type==='note')return item.content||'';
+  if(type==='experiment'||type==='book'){const log=[...(item.logs||[])].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))[0];return log?(log.note||log.feeling||''):(item.status||'')}
+  return '';
+}
+function recentUpdates(limit){
+  const out=[];
+  Object.keys(state.modules||{}).forEach(mid=>{
+    const m=state.modules[mid];if(!m||mid==='dashboard'||!Array.isArray(m.items))return;
+    (m.items||[]).forEach(item=>{
+      if(item.archived)return;
+      const time=recentItemTime(item,m.type);if(!time)return;
+      out.push({mid,id:item.id,time,title:recentItemTitle(item,m.type),summary:recentItemSummary(item,m.type),icon:m.icon,color:m.color||'c1'});
+    });
+  });
+  return out.sort((a,b)=>String(b.time).localeCompare(String(a.time))||0).slice(0,limit||6);
+}
+function goRecent(mid,id){
+  const m=state.modules[mid];if(!m)return;
+  switchMod(mid);
+  const item=(m.items||[]).find(x=>String(x.id)===String(id));
+  if(item)openDetail(item.id);
+}
 function renderDashboard(){
   const todos=state.modules.todos,tasks=state.modules.tasks,books=state.modules.books,exps=state.modules.experiments,diary=state.modules.diary;
   let stats=[];
@@ -1058,6 +1123,7 @@ function renderDashboard(){
   const q=state.customQuotes[state.activeQuote];
   const latestDiary=diary&&diary.items.length?diary.items[0]:null;
   const widgets=(state.dashWidgets||[]).map(w=>renderWidget(w)).join('');
+  const updates=recentUpdates(6);
   return `<div class="dashboard">
     <div class="dash-hero"><div class="dash-clock" id="dashClock">--:--<span class="sec">:--</span></div><div class="dash-date" id="dashDate"></div><div class="dash-greet" id="dashGreet"></div></div>
     <div class="dash-row">
@@ -1066,7 +1132,8 @@ function renderDashboard(){
     </div>
     <div class="dash-widgets" id="dashWidgets">${widgets}</div>
     ${latestDiary?`<div class="stat-card" style="margin-bottom:20px"><h4>📔 最近日记</h4><div style="font-size:13px"><div style="font-weight:600;margin-bottom:4px">${esc(latestDiary.mood||'')} ${esc(latestDiary.title||'')}</div><div style="color:var(--ink-soft);line-height:1.7;max-height:80px;overflow:hidden">${esc(latestDiary.content||'')}</div><div style="font-size:11px;color:var(--ink-faint);margin-top:6px">${esc(latestDiary.date)}</div></div></div>`:''}
-    <div class="quick-nav">${state.moduleOrder.filter(mid=>mid!=='dashboard').map(mid=>{const mm=state.modules[mid];return `<button onclick="switchMod('${mid}')" aria-label="打开模块：${esc(mm.name)}"><span class="ni-ico ico ${mm.color||'c1'}" style="width:22px;height:22px;font-size:13px">${mm.icon}</span>${esc(mm.name)}</button>`}).join('')}</div>
+    ${updates.length?`<div class="recent-panel"><div class="recent-head"><span>🕘 最近更新</span><span class="recent-count">${updates.length} 条</span></div><div class="recent-list">${updates.map(u=>`<button class="recent-item" onclick="goRecent('${u.mid}','${u.id}')" aria-label="打开最近更新：${esc(u.title)}"><span class="ni-ico ico ${u.color}">${u.icon}</span><span class="recent-body"><span class="recent-title">${esc(u.title)}</span>${u.summary?`<span class="recent-sum">${esc(u.summary)}</span>`:''}</span><span class="recent-time">${esc(u.time.length>=10?u.time.slice(5,10):u.time)}</span></button>`).join('')}</div></div>`:''}
+    <div class="quick-nav">${quickModuleOrder().map(mid=>{const mm=state.modules[mid];return `<button class="${modulePinned(mid)?'pinned':''}" onclick="switchMod('${mid}')" aria-label="打开模块：${esc(mm.name)}"><span class="ni-ico ico ${mm.color||'c1'}" style="width:22px;height:22px;font-size:13px">${mm.icon}</span>${esc(mm.name)}</button>`}).join('')}</div>
   </div>`;
 }
 function renderWidget(w){
@@ -1337,6 +1404,7 @@ function bindLp(el,getCtx,opts={}){
 function showLpMenu(e,rect,ctx){
   lpContext=ctx;
   const menu=document.getElementById('lpMenu');
+  const pinBtn=document.getElementById('lpPinBtn');if(pinBtn)pinBtn.style.display=ctx.type==='nav-module'?'flex':'none';
   let x=rect.left,y=rect.bottom+6;
   if(e.touches){x=e.touches[0].clientX;y=e.touches[0].clientY+10}
   // 防止超出屏幕
@@ -1376,6 +1444,7 @@ function lpAction(action){
   }else if(ctx.type==='nav-module'){
     const idx=state.moduleOrder.indexOf(ctx.mid);if(idx<0)return;
     if(action==='edit'||action==='editMeta')editModuleMeta(ctx.mid);
+    else if(action==='pin')toggleModulePin(ctx.mid);
     else if(action==='up'&&idx>0){[state.moduleOrder[idx-1],state.moduleOrder[idx]]=[state.moduleOrder[idx],state.moduleOrder[idx-1]];save();renderNav();renderContent()}
     else if(action==='down'&&idx<state.moduleOrder.length-1){[state.moduleOrder[idx+1],state.moduleOrder[idx]]=[state.moduleOrder[idx],state.moduleOrder[idx+1]];save();renderNav();renderContent()}
     else if(action==='delete'){if(state.modules[ctx.mid].custom){delMod(ctx.mid)}else{toast('内置模块不能删除，但可编辑')}}
